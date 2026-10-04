@@ -59,6 +59,51 @@ FIELDS = ["pth_path", "index_path", "sg_hostapi", "sg_wasapi_exclusive",
           "I_noise_reduce", "O_noise_reduce", "rms_mix_rate", "index_rate",
           "f0method"]
 
+MODELS_FILE = os.path.join(HERE, "models.json")      # 模型库（登记表）
+WEIGHTS_DIR = os.path.join(HERE, "assets", "weights")
+INDICES_DIR = os.path.join(HERE, "assets", "indices")
+
+
+def _load_models():
+    try:
+        with open(MODELS_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        ms = d.get("models") if isinstance(d, dict) else d
+        return ms if isinstance(ms, list) else []
+    except Exception:
+        return []
+
+
+def _save_models(models):
+    try:
+        with open(MODELS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"models": models}, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def _resolve(p):
+    """把用户给的路径解析成本机绝对路径（支持相对项目根，也支持绝对路径）。"""
+    if not p:
+        return None
+    p = str(p).strip().strip('"')
+    if not p:
+        return None
+    return os.path.normpath(p if os.path.isabs(p) else os.path.join(HERE, p))
+
+
+def models_payload():
+    cur = {}
+    try:
+        g = GUI.gui_config
+        cur = {"pth_path": getattr(g, "pth_path", ""),
+               "index_path": getattr(g, "index_path", "")}
+    except Exception:
+        pass
+    return {"models": _load_models(), "current": cur,
+            "weights_dir": "assets/weights", "indices_dir": "assets/indices"}
+
 
 def _page():
     try:
@@ -136,6 +181,8 @@ class _H(BaseHTTPRequestHandler):
                 return
             if self.path.startswith("/api/state"):
                 self._send(200, json.dumps(state(), ensure_ascii=False))
+            elif self.path.startswith("/api/models"):
+                self._send(200, json.dumps(models_payload(), ensure_ascii=False))
             elif self.path.startswith("/api/devices"):
                 self._send(200, json.dumps(devices(), ensure_ascii=False))
             else:
@@ -144,6 +191,38 @@ class _H(BaseHTTPRequestHandler):
             self._send(500, json.dumps({"error": str(e)}, ensure_ascii=False))
 
     def do_POST(self):
+        from urllib.parse import urlparse, parse_qs
+        q = parse_qs(urlparse(self.path).query)
+        if self.path.startswith("/api/upload"):
+            # 上传模型/索引：raw body，按扩展名归位（避开 multipart 解析）
+            if not self._authed():
+                self._send(401, json.dumps({"error": "token required"}, ensure_ascii=False))
+                return
+            name = os.path.basename((q.get("name") or [""])[0]).strip()
+            n = int(self.headers.get("Content-Length") or 0)
+            low = name.lower()
+            if not name or not (low.endswith(".pth") or low.endswith(".index")):
+                self._send(400, json.dumps({"error": "只接收 .pth / .index"}, ensure_ascii=False))
+                return
+            dest_dir = WEIGHTS_DIR if low.endswith(".pth") else INDICES_DIR
+            os.makedirs(dest_dir, exist_ok=True)
+            dest = os.path.join(dest_dir, name)
+            try:
+                with open(dest, "wb") as f:
+                    left = n
+                    while left > 0:
+                        chunk = self.rfile.read(min(1 << 20, left))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        left -= len(chunk)
+                rel = os.path.relpath(dest, HERE).replace("\\", "/")
+                self._send(200, json.dumps({"ok": True, "path": rel,
+                                            "bytes": os.path.getsize(dest)}, ensure_ascii=False))
+            except Exception as e:
+                self._send(500, json.dumps({"error": str(e)}, ensure_ascii=False))
+            return
+
         n = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(n).decode("utf-8") if n else "{}"
         try:
@@ -154,7 +233,22 @@ class _H(BaseHTTPRequestHandler):
             if not self._authed():
                 self._send(401, json.dumps({"error": "token required"}, ensure_ascii=False))
                 return
-            if self.path.startswith("/api/apply"):
+            if self.path.startswith("/api/models"):
+                alias = str(payload.get("alias") or "").strip()
+                pth, idx = _resolve(payload.get("pth")), _resolve(payload.get("index"))
+                if not alias:
+                    self._send(400, json.dumps({"error": "别名不能为空"}, ensure_ascii=False)); return
+                if not pth or not os.path.exists(pth):
+                    self._send(400, json.dumps({"error": "找不到 .pth 文件：%s" % payload.get("pth")}, ensure_ascii=False)); return
+                if not idx or not os.path.exists(idx):
+                    self._send(400, json.dumps({"error": "找不到 .index 文件（原版引擎要求索引必填）：%s" % payload.get("index")}, ensure_ascii=False)); return
+                ms = [m for m in _load_models() if m.get("alias") != alias]
+                ms.append({"alias": alias,
+                           "pth": os.path.relpath(pth, HERE).replace("\\", "/"),
+                           "index": os.path.relpath(idx, HERE).replace("\\", "/")})
+                _save_models(ms)
+                self._send(200, json.dumps(models_payload(), ensure_ascii=False))
+            elif self.path.startswith("/api/apply"):
                 # 线程安全：交给 Tk 主循环，由原版 set_values() 应用
                 GUI.window.write_event_value("-CTRL-APPLY", _merged(payload))
                 self._send(200, json.dumps({"ok": True}))
@@ -163,6 +257,20 @@ class _H(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"ok": True}))
             else:
                 self._send(404, "{}")
+        except Exception as e:
+            self._send(500, json.dumps({"error": str(e)}, ensure_ascii=False))
+
+    def do_DELETE(self):
+        from urllib.parse import urlparse, parse_qs
+        if not self._authed():
+            self._send(401, json.dumps({"error": "token required"}, ensure_ascii=False))
+            return
+        try:
+            q = parse_qs(urlparse(self.path).query)
+            alias = (q.get("alias") or [""])[0]
+            ms = [m for m in _load_models() if m.get("alias") != alias]
+            _save_models(ms)
+            self._send(200, json.dumps(models_payload(), ensure_ascii=False))
         except Exception as e:
             self._send(500, json.dumps({"error": str(e)}, ensure_ascii=False))
 
