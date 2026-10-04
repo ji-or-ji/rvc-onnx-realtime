@@ -73,6 +73,35 @@
 
 **风险**：第三方私有协议随版本失效；每个适配器需标注“已验证版本”。
 
+### 调研结论：RVC Fabric 架构（已核实，2026-10-04）
+
+**纠正**：之前推测的 `infer/modules/vc/pipeline.py` **不是实时模块，是离线渲染管线**。那条“实时处理抽成公共模块”提交指的是 **`tools/realtime_block.py`**。
+
+实时链路真实文件：`infer/lib/rtrvc.py`（实时推理引擎）、`tools/realtime_block.py`（共用“一块进一块出”）、`tools/audio_io_process.py`（独立声卡 IO 进程 + 共享内存环形缓冲）、`tools/block_geometry.py`（分块几何单一来源）、`tools/dsp_fx.py`（后级 DSP 链）、`tools/win_realtime.py`（Windows 调度提升）、`tools/worker_protocol.py` + `app/src-tauri/src/protocol.rs`（文件式命令协议）。
+
+**架构：跨进程三层**
+1. 声卡 IO 进程（multiprocessing）：sounddevice 回调里**只做 memcpy** 写共享内存环形缓冲，零推理
+2. 引擎进程的音频线程：取一块 → `realtime_block.process_block`（内含 `rtrvc.infer`）→ 写回
+3. 引擎主循环：每 80ms 轮询 `command.json`（控制面）+ 抽 `_model_events` 队列；**音频线程不写磁盘/状态**
+
+控制面是文件 mailbox（seq 认领 + 回执），角色上等同于我们的 `control_server`，只是传输介质从 HTTP 换成原子替换的 JSON 文件。
+
+**三个关键答案**
+- **Bypass（切原声）**：软旁路。`process_block` 里仅 `function == "vc"` 才跑模型；否则拿输入当输出，**继续走同一条下游**（DSP → SOLA → 音量 → 软限幅）。平滑靠“每块本来就过 SOLA”，没有专门的旁路斜坡。
+- **DSP 链**：全在 Python/numpy、**变声之后**：噪声门 → 压缩器 → 5 段图形 EQ（60/250/1k/4k/8k，RBJ 双二阶）→ 输出增益 → tanh 软限幅；有 scipy 则一次 `sosfilt`。
+- **无缝切音色**：**不是双模型交叉淡化**。① 热参数 `change_key / change_formant / change_index_rate`（下一块生效）；② 模型热换复用 `last_rvc`：**hubert 共享不重载**，同 pth 连 net_g 也复用，只有换 pth 才重载；换的过程后台事件式（`VC_SWAPPING`），旧模型继续跑。
+
+**可借鉴（对我们对症）**
+1. **音频回调与推理彻底隔开，回调只搬样本**——正是我们“回调内推理”那些坑（xrun、CPU 飙升）的解药
+2. 环形缓冲欠载时**消费清零**（一次 miss 变成一段静音，而不是卡带循环）
+3. 实时与离线共用一个 `process_block`（避免“调参调出来的和听到的不是同一个声音”）
+4. 分块几何单一来源
+5. 热参数即时生效不重载；状态写盘只在主循环
+
+**慎用/不抄**：文件轮询 mailbox（但它的握手：seq 认领/回执超时/原子替换值得抄）；Windows 专用调度提升（MMCss / EcoQoS / timeBeginPeriod，非 Windows 无效）；DirectML/A 卡成堆绕行；多进程带来的产品化成本（隐藏黑框、pid 台账、null-byte 检测）。
+
+**三个未确认项**（读不到 `gui_v1.py` ~199KB 的中段，因 >50KB 文件只能取头尾）：① 音频线程真实实现 ② bypass 切换瞬间怎么处理缓冲 ③ 换音色有无跨淡化。想钉死这三点，需重派一个**可写**的子代理（只读模式下 browser/exec 会被拦），或人工贴出中段。
+
 ## 已完成（留档，勿重复）
 
 - **修复**：遥控应用参数时**先停流**（避免 CUDA Graph 捕获期间 `empty_cache` 断言崩溃）
