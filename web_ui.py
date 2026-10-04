@@ -70,6 +70,7 @@ def apply_contract(ctrl, path):
         ctrl.cfg["f0"] = F0_MAP.get(fm, "pm")
         ctrl._thr_gate = 10 ** (ctrl.cfg["threshold"] / 20.0)
         ctrl.contract = dict(c)
+        ctrl.hostapi = str(c.get("sg_hostapi") or "")
         snap = dict(ctrl.cfg)
     print("[web_ui] 契约已载入：block=%.3f ctx=%.3f up_key=%d threshold=%.1f in=%s out=%s" %
           (snap["block"], snap["ctx"], snap["up_key"], snap["threshold"],
@@ -78,12 +79,12 @@ def apply_contract(ctrl, path):
 
 # ---------------- 引擎控制器 ----------------
 class Controller:
-    def __init__(self, dev_block=0.05, prefill=1):
+    def __init__(self, dev_block=0.03, prefill=2):
         self.lock = threading.Lock()
         self.phase = "idle"          # idle | loading | running | error
         self.msg = ""
         self.dev_block = float(dev_block)
-        self.prefill = int(prefill)  # 预铺几个推理块再出声
+        self.prefill = int(prefill)  # 预铺几个推理块再出声（jitter buffer）
         self.cfg = {"ep": "cpu", "block": 0.5, "ctx": 0.25, "f0": "pm",
                     "threads": 0, "gain": 1.0, "up_key": 12, "threshold": -60.0,
                     "in_spec": "", "out_spec": "", "in_sr": 0, "out_sr": 0}
@@ -96,6 +97,7 @@ class Controller:
         self._gain = 1.0
         self.engine = "onnx"        # onnx | torch-cuda
         self.contract = {}          # 契约原文（torch 引擎需要 pth/index 等字段）
+        self.hostapi = ""           # 契约里的 sg_hostapi，同名设备时优先选它
 
     # --- 对外 ---
     def snapshot(self):
@@ -146,6 +148,149 @@ class Controller:
                     self.stats[k] = v
 
     def _run(self):
+        """单条双向流 + 回调内推理（对齐原版 realtime_gui 的设计）。"""
+        return self._run_duplex()
+
+    def _run_duplex(self):
+        """对齐原版 GUI：一条 sd.Stream（双向）、回调里直接推理、无队列。
+
+        原版为何不卡：只有一条设备会话（输入输出同一时钟）、没有中间队列可被抽空、
+        推理就在回调里（回调要么按时完成，要么就是一次欠载，不会累积漂移）。
+        旧实现（两条独立流 + 两个环形缓冲 + 工作线程）会因两个设备时钟独立漂移 +
+        GIL 争用而周期性断音——结构问题，调参数救不回来。
+        """
+        cfg = self.cfg
+        coinit = None
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                coinit = ctypes.windll.ole32.CoInitializeEx(None, 0x2)
+            except Exception:
+                coinit = None
+        stream = None
+        try:
+            self._put(phase="loading", msg="正在构建推理引擎（首次较慢）…")
+            if self.engine == "torch-cuda":
+                from torch_engine import TorchEngine
+                eng = TorchEngine(self.contract)
+            else:
+                eng = rt.Engine(cfg["ep"], cfg["block"], cfg["ctx"], cfg["f0"],
+                                cfg["threads"], cfg["up_key"])
+
+            # 预热：首块要 1~2 秒（CUDA graph / 算子首次编译），必须放在开流之前，
+            # 否则第一个回调就超时。
+            self._put(msg="预热引擎（首块较慢）…")
+            try:
+                eng.push(np.zeros(eng.block, dtype=np.float32))
+                eng.run()
+            except Exception as e:
+                self._put(msg="预热失败（忽略）：%s" % e)
+
+            import sounddevice as sd
+            try:
+                in_dev, in_def = rt.resolve_dev(cfg["in_spec"], True, hostapi=self.hostapi)
+            except SystemExit as e:
+                self._put(msg="输入设备未找到，改用系统默认（%s）" % e)
+                in_dev, in_def = None, None
+            try:
+                out_dev, out_def = rt.resolve_dev(cfg["out_spec"], False, hostapi=self.hostapi)
+            except SystemExit as e:
+                self._put(msg="输出设备未找到，改用系统默认（%s）" % e)
+                out_dev, out_def = None, None
+
+            def _dname(idx):
+                if idx is None:
+                    return "系统默认"
+                d = sd.query_devices(idx)
+                return "%s @%s" % (d["name"], sd.query_hostapis(d["hostapi"])["name"])
+
+            dev_sr = int(in_def or out_def or rt.SR_OUT)      # 以输入设备采样率为准（同原版）
+            block_dev = max(256, int(round(eng.block * dev_sr / rt.SR_IN)))
+            cf = float(self.contract.get("crossfade_length") or 0.01)
+            fade = max(0, min(int(dev_sr * cf), int(dev_sr * 0.02)))
+            gate_on = float(self.contract.get("threhold", -60.0)) > -60.0
+            print("[web_ui] 双向流：in=%s  out=%s  %dHz  块=%d  淡化=%d  门限=%s" %
+                  (_dname(in_dev), _dname(out_dev), dev_sr, block_dev, fade,
+                   "开" if gate_on else "关(-60)"), flush=True)
+
+            tail = np.zeros(fade, dtype=np.float32)
+            st = {"ms": 0.0, "blocks": 0, "xr_in": 0, "xr_out": 0, "gate": 0}
+            times = []
+
+            def cb(indata, outdata, frames, t, status):
+                nonlocal tail
+                try:
+                    if status:
+                        if status.input_overflow:
+                            st["xr_in"] += 1
+                        if status.output_underflow:
+                            st["xr_out"] += 1
+                    mono = indata[:, 0]
+                    if gate_on and float(np.sqrt(np.mean(mono * mono))) < self._thr_gate:
+                        mono = np.zeros_like(mono)     # 只把输入清零，推理照跑（同原版思路）
+                        st["gate"] += 1
+                    x16 = rt._resample(mono, dev_sr, rt.SR_IN) if dev_sr != rt.SR_IN else mono
+                    if len(x16) < eng.block:
+                        x16 = np.pad(x16, (0, eng.block - len(x16)))
+                    eng.push(np.ascontiguousarray(x16[:eng.block]))
+                    a, ms = eng.run()
+                    if dev_sr != rt.SR_OUT:
+                        a = rt._resample(a, rt.SR_OUT, dev_sr)
+                    n = frames
+                    if len(a) < n:
+                        a = np.pad(a, (0, n - len(a)))
+                    a = (a[:n] * self._gain).astype(np.float32)
+                    f = len(tail)
+                    if f and n >= f:
+                        w = np.linspace(0.0, 1.0, f, dtype=np.float32)
+                        a[:f] = a[:f] * w + tail * (1.0 - w)
+                        tail = a[-f:].copy()
+                    outdata[:, 0] = a
+                    times.append(ms)
+                    if len(times) > 60:
+                        times.pop(0)
+                    st["blocks"] += 1
+                    st["ms"] = sum(times) / len(times)
+                    self._put(ms=st["ms"], blocks=st["blocks"],
+                              in_dev=cfg["in_spec"] or "默认", out_dev=cfg["out_spec"] or "默认",
+                              in_sr=dev_sr, out_sr=dev_sr, queue=0.0,
+                              lat=round(block_dev / dev_sr * 1000.0, 1),
+                              xrun_in=st["xr_in"], xrun_out=st["xr_out"], gate=st["gate"],
+                              **{"in": float(np.sqrt(np.mean(mono * mono))),
+                                 "out": float(np.max(np.abs(a)))})
+                except BaseException:
+                    import traceback
+                    traceback.print_exc()
+                    outdata.fill(0.0)
+
+            stream = sd.Stream(device=(in_dev, out_dev), samplerate=dev_sr, channels=1,
+                               dtype="float32", blocksize=block_dev, callback=cb)
+            stream.start()
+            self._put(phase="running", msg="运行中（单流·回调内推理）")
+            while not self._stop.is_set():
+                time.sleep(0.1)
+        except BaseException as e:
+            import traceback
+            traceback.print_exc()
+            self._put(phase="error", msg="%s: %s" % (type(e).__name__, e))
+        finally:
+            try:
+                if stream:
+                    stream.abort()
+                    stream.close()
+            except Exception:
+                pass
+            if sys.platform == "win32" and coinit is not None:
+                try:
+                    import ctypes
+                    ctypes.windll.ole32.CoUninitialize()
+                except Exception:
+                    pass
+            if self.phase != "error":
+                self._put(phase="idle", msg="已停止", ms=0.0, queue=0.0, lat=0.0)
+
+    def _run_legacy(self):
+        """旧实现（两条流 + 环形缓冲 + 工作线程）：保留备查，用 RVC_AUDIO_LEGACY=1 启用。"""
         cfg = self.cfg
         dev_b = self.dev_block
         ist = ost = None
@@ -175,16 +320,25 @@ class Controller:
                 eng.run()
             except Exception as e:
                 self._put(msg="预热失败（忽略）：%s" % e)
+            import sounddevice as sd
             try:
-                in_dev, in_def = rt.resolve_dev(cfg["in_spec"], True)
+                in_dev, in_def = rt.resolve_dev(cfg["in_spec"], True, hostapi=self.hostapi)
             except SystemExit as e:
                 self._put(msg="输入设备未找到，改用系统默认（%s）" % e)
                 in_dev, in_def = None, None
             try:
-                out_dev, out_def = rt.resolve_dev(cfg["out_spec"], False)
+                out_dev, out_def = rt.resolve_dev(cfg["out_spec"], False, hostapi=self.hostapi)
             except SystemExit as e:
                 self._put(msg="输出设备未找到，改用系统默认（%s）" % e)
                 out_dev, out_def = None, None
+
+            def _dname(idx):
+                if idx is None:
+                    return "系统默认"
+                d = sd.query_devices(idx)
+                return "%s @%s" % (d["name"], sd.query_hostapis(d["hostapi"])["name"])
+
+            print("[web_ui] 实际设备：in=%s  out=%s" % (_dname(in_dev), _dname(out_dev)), flush=True)
             in_sr = int(cfg["in_sr"]) or in_def or rt.SR_IN
             out_sr = int(cfg["out_sr"]) or out_def or rt.SR_OUT
             block_in = int(round(eng.block * in_sr / rt.SR_IN))     # 一个推理块 = 多少输入样本
@@ -408,9 +562,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8899)
-    ap.add_argument("--dev-block", type=float, default=0.05,
-                    help="设备回调块长(秒)：卡顿就调大(0.08~0.15)，延迟敏感就调小")
-    ap.add_argument("--prefill", type=int, default=1, help="输出预铺块数")
+    ap.add_argument("--dev-block", type=float, default=0.03,
+                    help="设备回调块长(秒)：卡顿就调大，延迟敏感就调小")
+    ap.add_argument("--prefill", type=int, default=2,
+                    help="输出预铺块数（jitter buffer）：卡顿就调大")
     ap.add_argument("--config", default=os.path.join("configs", "config.json"),
                     help="参数契约（配方写入的文件）")
     ap.add_argument("--engine", default="", help="onnx | torch-cuda（默认 onnx）")

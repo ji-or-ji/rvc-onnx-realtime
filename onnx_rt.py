@@ -80,8 +80,12 @@ def list_devices():
                                            sd.query_hostapis(d["hostapi"])["name"], int(d["default_samplerate"])))
 
 
-def resolve_dev(spec, want_input: bool):
-    """spec: None/'' -> 系统默认; 纯数字 -> 序号; 其他 -> 名称关键词。"""
+def resolve_dev(spec, want_input: bool, prefer_wasapi=True, hostapi=None):
+    """spec: None/'' -> 系统默认; 纯数字 -> 序号; 其他 -> 名称关键词。
+
+    同名设备往往在多个宿主 API 下都存在（MME / DirectSound / WASAPI / WDM-KS）。
+    MME 是模拟层、抖动大；同名时优先 WASAPI（config 里的 sg_hostapi 优先）。
+    """
     import sounddevice as sd
     devs = sd.query_devices()
     if not spec:
@@ -93,11 +97,24 @@ def resolve_dev(spec, want_input: bool):
             raise SystemExit("设备序号越界: %s" % spec)
         return i, int(devs[i]["default_samplerate"])
     key = str(spec).lower()
-    for i, d in enumerate(devs):
-        if key in d["name"].lower() and d[ch] > 0:
-            return i, int(d["default_samplerate"])
-    raise SystemExit("找不到%s设备（关键词 %r）。用 --list-devices 看名字。" %
-                     ("输入" if want_input else "输出", spec))
+    hits = [i for i, d in enumerate(devs) if key in d["name"].lower() and d[ch] > 0]
+    if not hits:
+        raise SystemExit("找不到%s设备（关键词 %r）。用 --list-devices 看名字。" %
+                         ("输入" if want_input else "输出", spec))
+
+    def api_of(i):
+        return sd.query_hostapis(devs[i]["hostapi"])["name"]
+
+    def rank(i):
+        a = api_of(i).lower()
+        if hostapi and hostapi.lower().replace("windows ", "") in a:
+            return 0
+        if prefer_wasapi and "wasapi" in a:
+            return 1
+        return 2
+
+    best = min(hits, key=rank)          # min 稳定，同级取最先出现者
+    return best, int(devs[best]["default_samplerate"])
 
 
 def _resample(x, sr_from, sr_to):
