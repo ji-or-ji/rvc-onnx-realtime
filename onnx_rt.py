@@ -276,54 +276,98 @@ def selftest(eng, wav):
     log("wrote _rt_selftest_out.wav")
 
 
-def realtime(eng, in_spec, out_spec, in_sr, out_sr, gain=1.0):
+def realtime(eng, in_spec, out_spec, in_sr, out_sr, gain=1.0, dev_block=0.05, prefill=1):
+    """环形缓冲 + 小设备块长：设备回调只做拷贝，推理与音频彻底解耦，避免卡顿。"""
+    import threading
     import sounddevice as sd
+
+    # Windows: WASAPI 依赖线程级 COM 初始化；工作线程里开流前必须 CoInitializeEx。
+    coinit = None
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            coinit = ctypes.windll.ole32.CoInitializeEx(None, 0x2)
+        except Exception:
+            coinit = None
 
     in_dev, in_default_sr = resolve_dev(in_spec, True)
     out_dev, out_default_sr = resolve_dev(out_spec, False)
     in_sr = int(in_sr) or in_default_sr or SR_IN
     out_sr = int(out_sr) or out_default_sr or SR_OUT
     block_in = int(round(eng.block * in_sr / SR_IN))
-    log("设备: in=%s(%sHz%s)  out=%s(%sHz%s)" %
+    block_out = int(round(eng.block * out_sr / SR_IN))
+    dev_in, dev_out = max(256, int(in_sr * dev_block)), max(256, int(out_sr * dev_block))
+    log("设备: in=%s(%sHz%s)  out=%s(%sHz%s)  回调块=%.0fms" %
         (in_spec or "默认", in_sr, "" if in_sr == SR_IN else " -> 内部16k",
-         out_spec or "默认", out_sr, "" if out_sr == SR_OUT else " <- 模型48k"))
+         out_spec or "默认", out_sr, "" if out_sr == SR_OUT else " <- 模型48k", dev_block * 1000))
 
-    q_in = deque()
-    q_out = deque()
-    stats = []
+    lk = threading.Lock()
+    in_ring = np.zeros(max(block_in * 6, in_sr), dtype=np.float32)
+    out_ring = np.zeros(max(block_out * 8, out_sr), dtype=np.float32)
+    in_len, out_len = len(in_ring), len(out_ring)
+    st = {"ir": 0, "iw": 0, "or": 0, "ow": 0}
+    xr = {"in": 0, "out": 0}
+    primed = [False]
 
     def in_cb(indata, frames, t, status):
-        q_in.append(indata[:, 0].copy())
+        x = indata[:, 0]
+        with lk:
+            if st["iw"] - st["ir"] + frames > in_len:
+                xr["in"] += 1
+                return
+            e = st["iw"] % in_len
+            n = min(frames, in_len - e)
+            in_ring[e:e + n] = x[:n]
+            if n < frames:
+                in_ring[:frames - n] = x[n:]
+            st["iw"] += frames
 
     def out_cb(outdata, frames, t, status):
-        need, buf = frames, np.empty(0, dtype=np.float32)
-        while need > 0 and q_out:
-            chunk = q_out[0]
-            take = min(len(chunk), need)
-            buf = np.concatenate([buf, chunk[:take]])
-            if take == len(chunk):
-                q_out.popleft()
-            else:
-                q_out[0] = chunk[take:]
-            need -= take
-        if need > 0:
-            buf = np.concatenate([buf, np.zeros(need, dtype=np.float32)])
-        outdata[:] = buf.reshape(-1, 1)
+        with lk:
+            avail = st["ow"] - st["or"]
+            if not primed[0]:
+                if avail < block_out * prefill:
+                    outdata.fill(0.0)
+                    return
+                primed[0] = True
+            take = min(frames, avail)
+            y = np.zeros(frames, dtype=np.float32)
+            e = st["or"] % out_len
+            n = min(take, out_len - e)
+            y[:n] = out_ring[e:e + n]
+            if n < take:
+                y[n:take] = out_ring[:take - n]
+            st["or"] += take
+            if take < frames:
+                xr["out"] += 1
+            outdata[:, 0] = y
 
-    ist = sd.InputStream(device=in_dev, samplerate=in_sr, channels=1,
-                         blocksize=block_in, dtype="float32", callback=in_cb)
-    ost = sd.OutputStream(device=out_dev, samplerate=out_sr, channels=1,
-                          blocksize=int(round(eng.block * out_sr / SR_IN)),
-                          dtype="float32", callback=out_cb)
+    ist = sd.InputStream(device=in_dev, samplerate=in_sr, channels=1, blocksize=dev_in,
+                         dtype="float32", latency="low", callback=in_cb)
+    ost = sd.OutputStream(device=out_dev, samplerate=out_sr, channels=1, blocksize=dev_out,
+                          dtype="float32", latency="low", callback=out_cb)
     ist.start()
     ost.start()
     log("已开启，说话吧（Ctrl+C 退出）")
+    times, done = [], 0
     try:
         while True:
-            if not q_in:
-                time.sleep(0.005)
+            with lk:
+                have = st["iw"] - st["ir"]
+                if have >= block_in:
+                    e = st["ir"] % in_len
+                    raw = np.empty(block_in, dtype=np.float32)
+                    n = min(block_in, in_len - e)
+                    raw[:n] = in_ring[e:e + n]
+                    if n < block_in:
+                        raw[n:] = in_ring[:block_in - n]
+                    st["ir"] += block_in
+                    queued = st["ow"] - st["or"]
+                else:
+                    raw, queued = None, 0
+            if raw is None:
+                time.sleep(0.004)
                 continue
-            raw = q_in.popleft()
             x16 = _resample(raw, in_sr, SR_IN) if in_sr != SR_IN else raw
             if len(x16) < eng.block:
                 x16 = np.pad(x16, (0, eng.block - len(x16)))
@@ -331,14 +375,37 @@ def realtime(eng, in_spec, out_spec, in_sr, out_sr, gain=1.0):
             a, ms = eng.run()
             if out_sr != SR_OUT:
                 a = _resample(a, SR_OUT, out_sr)
-            q_out.append(a * gain)
-            stats.append(ms)
-            if len(stats) % 20 == 0:
-                log("  推理平均 %.0f ms / %d 块   输出积压 %d" % (sum(stats[-20:]) / 20, len(stats), len(q_out)))
+            a = (a * gain).astype(np.float32)
+            with lk:
+                space = out_len - (st["ow"] - st["or"])
+                if len(a) > space:
+                    drop = len(a) - space
+                    st["or"] += drop
+                    a = a[drop:]
+                    xr["out"] += 1
+                e = st["ow"] % out_len
+                n = min(len(a), out_len - e)
+                out_ring[e:e + n] = a[:n]
+                if n < len(a):
+                    out_ring[:len(a) - n] = a[n:]
+                st["ow"] += len(a)
+            times.append(ms)
+            if len(times) > 60:
+                times.pop(0)
+            done += 1
+            if done % 20 == 0:
+                log("  推理平均 %.0f ms/块  输出延迟 %.0fms  欠载 in/out %d/%d" %
+                    (sum(times) / len(times), queued / out_sr * 1000, xr["in"], xr["out"]))
     except KeyboardInterrupt:
         pass
     finally:
         ist.stop(); ost.stop()
+        if sys.platform == "win32" and coinit is not None:
+            try:
+                import ctypes
+                ctypes.windll.ole32.CoUninitialize()
+            except Exception:
+                pass
         log("停止。")
 
 
@@ -355,6 +422,9 @@ def main():
     ap.add_argument("--in-sr", type=int, default=0)
     ap.add_argument("--out-sr", type=int, default=0)
     ap.add_argument("--list-devices", action="store_true")
+    ap.add_argument("--dev-block", type=float, default=0.05,
+                    help="设备回调块长(秒)，音频卡顿就调大(0.08~0.15)")
+    ap.add_argument("--prefill", type=int, default=1, help="输出预铺块数，抗抖动")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--selftest-wav", default=r"D:\Hanako-workspace\_rec3_t.wav")
     a = ap.parse_args()
@@ -369,7 +439,7 @@ def main():
         wav, _ = librosa.load(a.selftest_wav, sr=SR_IN, mono=True)
         selftest(eng, wav.astype(np.float32))
     else:
-        realtime(eng, a.in_spec, a.out_spec, a.in_sr, a.out_sr, a.gain)
+        realtime(eng, a.in_spec, a.out_spec, a.in_sr, a.out_sr, a.gain, a.dev_block, a.prefill)
 
 
 if __name__ == "__main__":
