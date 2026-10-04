@@ -54,6 +54,13 @@ select,input:not([type=range]){
 }
 select{font-size:15px}
 select:focus,input:not([type=range]):focus{border-bottom-color:var(--accent)}
+/* 下拉列表：不去管它就会用系统默认底色，深色模式下会和文字撞成隐形 */
+select option{background-color:var(--paper);color:var(--ink)}
+/* 自绘下拉箭头（appearance:none 把原生箭头一起抹掉了） */
+.sel{position:relative}
+.sel::after{content:"▾";position:absolute;right:0;bottom:7px;font-size:11px;line-height:1;
+  pointer-events:none;color:var(--ink)}
+.sel select{padding-right:16px}
 .ctl{display:flex;align-items:center;gap:14px}
 .ctl input[type=number]{width:84px;flex:0 0 auto;text-align:left;padding-left:0}
 input[type=range]{
@@ -139,9 +146,9 @@ footer{border-top:1px solid var(--ink);margin-top:52px;padding-top:12px;
       <p class="hint">宿主 API 与输入／输出端点。改动后需重新开始才生效。</p>
     </div>
     <div class="fields body" style="grid-column:4/13">
-      <label><span class="lb">设备类型</span><select id="sg_hostapi"></select></label>
-      <label><span class="lb">输入</span><select id="sg_input_device"></select></label>
-      <label><span class="lb">输出</span><select id="sg_output_device"></select></label>
+      <div class="sel"><span class="lb">设备类型</span><select id="sg_hostapi"></select></div>
+      <div class="sel"><span class="lb">输入</span><select id="sg_input_device"></select></div>
+      <div class="sel"><span class="lb">输出</span><select id="sg_output_device"></select></div>
     </div>
   </section>
 
@@ -227,8 +234,8 @@ function buildField(host, def){
 $("f2").innerHTML = ""; $("f3").innerHTML = "";
 P2.forEach(p => buildField($("f2"), p));
 $("f2").insertAdjacentHTML("beforeend",
-  `<label><span class="lb">f0 算法</span><select id="f0method">
-     <option>rmvpe</option><option>pm</option><option>fcpe</option></select></label>`);
+  `<div class="sel"><span class="lb">f0 算法</span><select id="f0method">
+     <option>rmvpe</option><option>pm</option><option>fcpe</option></select></div>`);
 P3.forEach(p => buildField($("f3"), p));
 
 /* ── 外观：模式 + 配色 ── */
@@ -243,6 +250,8 @@ function applyLook(){
   const dark = mode === "dark" || (mode === "auto" && mq.matches);
   document.documentElement.dataset.mode = dark ? "dark" : "light";
   document.documentElement.dataset.theme = theme;
+  // 关键：告诉浏览器现在是深/浅色，否则原生下拉列表、滚动条仍按浅色画
+  document.documentElement.style.colorScheme = dark ? "dark" : "light";
   [...$("modes").children].forEach(b => b.classList.toggle("on", b.dataset.v === mode));
   [...$("themes").children].forEach(b => b.classList.toggle("on", b.dataset.v === theme));
 }
