@@ -42,6 +42,12 @@ class VCClientAdapter(Adapter):
     verified = "master v2.2.2-beta（客户端库 1.0.182）"
     notes = ("仅服务端音频设备模式可被完全接管；无鉴权；"
              "block_time 无对应接口；接口未版本化，字段会漂移")
+    stop_note = "VC Client 没有服务端停止命令，这里的「停止」= 切为原声旁路（passThrough）"
+    can_start = False
+
+    def start_engine(self):
+        return {"ok": False,
+                "note": "VC Client 是独立软件，需你自己启动；建议用 --host 0.0.0.0 启动以便局域网接管"}
 
     def __init__(self, host="127.0.0.1", port=18888):
         self.base = "http://%s:%d" % (host, port)
