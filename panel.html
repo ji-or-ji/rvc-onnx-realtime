@@ -158,6 +158,20 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
       <div class="num">01</div>
+      <h2>引擎</h2>
+      <p class="hint">管理台可管多家引擎；选谁，下面的设备 / 模型 / 参数就管谁。</p>
+    </div>
+    <div class="body" style="grid-column:4/13">
+      <div class="fields">
+        <div class="sel"><span class="lb">当前管理的引擎</span><select id="engine_sel"></select></div>
+      </div>
+      <p class="hint" id="engine_note" style="max-width:none;margin-top:.7rem"></p>
+    </div>
+  </section>
+
+  <section class="grid sec">
+    <div class="head" style="grid-column:1/4">
+      <div class="num">02</div>
       <h2>预设</h2>
       <p class="hint">把「设备 + 模型 + 参数」打包成一套，按一下换整个场景。</p>
     </div>
@@ -183,7 +197,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">02</div>
+      <div class="num">03</div>
       <h2>音频设备</h2>
       <p class="hint">宿主 API 与输入／输出端点。改动后需重新开始才生效。</p>
     </div>
@@ -196,7 +210,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">03</div>
+      <div class="num">04</div>
       <h2>模型</h2>
       <p class="hint">选中即切换（约 30 秒加载）。登记、导入等低频操作在下面。</p>
     </div>
@@ -227,7 +241,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">04</div>
+      <div class="num">05</div>
       <h2>声音参数</h2>
       <p class="hint">音调、声线、检索与响度。拖动即时改值，点「应用」才下发。</p>
     </div>
@@ -236,7 +250,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">05</div>
+      <div class="num">06</div>
       <h2>引擎节奏</h2>
       <p class="hint">采样长度决定延迟；额外推理时长决定上下文与算力。</p>
     </div>
@@ -245,7 +259,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">06</div>
+      <div class="num">07</div>
       <h2>运行</h2>
       <p class="hint">应用后立即重新开始（换模型约需 30 秒加载），相当于在原界面按一次「开始」。</p>
     </div>
@@ -260,7 +274,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">07</div>
+      <div class="num">08</div>
       <h2>外观</h2>
       <p class="hint">字号、配色与明暗。设置存在本机浏览器里。</p>
     </div>
@@ -378,17 +392,56 @@ mq.addEventListener("change", applyLook);
 applyLook();
 $("hostaddr").textContent = location.host;
 
+/* ── 引擎选择：选谁就管谁 ── */
+let ENGINES = [];
+let ENGINE = localStorage.getItem("rvc-engine") || "";
+function engineQuery(){ return ENGINE ? ("?engine=" + encodeURIComponent(ENGINE)) : ""; }
+function renderEngines(){
+  const sel = $("engine_sel");
+  sel.innerHTML = ENGINES.map(e =>
+    `<option value="${e.id}">${e.label}${e.available ? "" : "（未就绪）"}</option>`).join("");
+  if (!ENGINE && ENGINES.length) {
+    ENGINE = ENGINES[0].id;
+    localStorage.setItem("rvc-engine", ENGINE);
+  }
+  sel.value = ENGINE;
+  const cur = ENGINES.find(e => e.id === ENGINE) || {};
+  $("engine_note").textContent =
+    (cur.available ? "✓ 就绪：" + (cur.reason || "") : "✗ 未就绪：" + (cur.reason || "")) +
+    "　· 已验证：" + (cur.verified || "—") + (cur.notes ? "　· " + cur.notes : "");
+}
+async function loadEngines(){
+  try{
+    const d = await (await api('/api/engines')).json();
+    ENGINES = d.engines || [];
+    renderEngines();
+  }catch(e){ /* 未授权时静默 */ }
+}
+$("engine_sel").onchange = async () => {
+  ENGINE = $("engine_sel").value;
+  localStorage.setItem("rvc-engine", ENGINE);
+  renderEngines();
+  // 换了引擎，设备清单必须重取（不同引擎的设备表不同）
+  ["sg_hostapi", "sg_input_device", "sg_output_device"].forEach(i => delete $(i).dataset.filled);
+  await load();
+};
+
 /* ── 读取 / 下发 ── */
 async function load(){
   try{
-    const s = await (await api('/api/state')).json();
+    const s = await (await api('/api/state' + engineQuery())).json();
+    if (s && s.available === false) {
+      $("dot").className = "sq";
+      $("st").textContent = s.reason || "该引擎未就绪";
+      return;
+    }
     NUM.forEach(k => {
       const n = $(k), r = $(k + "_r");
       if (s[k] !== null && s[k] !== undefined && n && r) { n.value = s[k]; r.value = s[k]; }
     });
     if(s.f0method) $("f0method").value = s.f0method;
     if(!$("sg_hostapi").dataset.filled){
-      const dv = await (await api('/api/devices')).json();
+      const dv = await (await api('/api/devices' + engineQuery())).json();
       const apis = [...new Set(dv.devices.map(d => d.api))];
       $("sg_hostapi").innerHTML = apis.map(a => `<option>${a}</option>`).join("");
       fill("sg_input_device",  dv.devices.filter(d => d.io.includes("in")),  s.sg_input_device);
@@ -496,6 +549,7 @@ $("preset_sel").onchange = async () => {
   formFromPreset(p);
   const body = Object.assign({}, p);
   delete body.name;
+  body.engine = ENGINE;
   $("st").textContent = "正在切换预设（换模型约 30 秒）…";
   await api('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
                            body: JSON.stringify(body)});
@@ -529,21 +583,24 @@ $("model_sel").onchange = async () => {
   if (!m) return;                       // 「不切换」不动它
   $("st").textContent = "正在切换模型（约 30 秒）…";
   await api('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
-                           body: JSON.stringify({pth_path: m.pth, index_path: m.index})});
+                           body: JSON.stringify({engine: ENGINE, pth_path: m.pth, index_path: m.index})});
   setTimeout(load, 1500);
 };
 
 $("apply").onclick = async () => {
   $("st").textContent = "已下发";
+  const body = currentBody();
+  body.engine = ENGINE;
   await api('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
-                           body: JSON.stringify(currentBody())});
+                           body: JSON.stringify(body)});
   setTimeout(load, 2000);
 };
 $("stop").onclick = async () => {
-  await api('/api/stop', {method:'POST'});
+  await api('/api/stop', {method:'POST', headers:{'Content-Type':'application/json'},
+                          body: JSON.stringify({engine: ENGINE})});
   setTimeout(load, 800);
 };
-load();
+loadEngines().then(load);
 loadModels();
 loadPresets();
 setInterval(load, 4000);
