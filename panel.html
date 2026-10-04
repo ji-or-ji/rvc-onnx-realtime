@@ -162,6 +162,30 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
       <div class="num">02</div>
+      <h2>模型</h2>
+      <p class="hint">给模型起个名字，之后一点就能换。登记表存在引擎那边，电脑和手机共用。</p>
+    </div>
+    <div class="fields body" style="grid-column:4/13">
+      <div class="sel"><span class="lb">已存模型</span><select id="model_sel"></select></div>
+      <label><span class="lb">别名</span><input id="m_alias" type="text" placeholder="例如 御风 o3"></label>
+      <label><span class="lb">.pth 路径</span><input id="m_pth" type="text" placeholder="assets/weights/x.pth"></label>
+      <label><span class="lb">.index 路径（必填）</span><input id="m_index" type="text" placeholder="assets/indices/x.index"></label>
+      <div>
+        <span class="lb">操作</span>
+        <div class="picks">
+          <button class="tb" id="m_add">存为别名</button>
+          <button class="tb" id="m_del">删除</button>
+          <label class="tb" style="margin:0;cursor:pointer">上传文件
+            <input type="file" id="m_file" accept=".pth,.index" style="display:none">
+          </label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid sec">
+    <div class="head" style="grid-column:1/4">
+      <div class="num">03</div>
       <h2>声音参数</h2>
       <p class="hint">音调、声线、检索与响度。拖动即时改值，点「应用」才下发。</p>
     </div>
@@ -170,7 +194,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">03</div>
+      <div class="num">04</div>
       <h2>引擎节奏</h2>
       <p class="hint">采样长度决定延迟；额外推理时长决定上下文与算力。</p>
     </div>
@@ -179,9 +203,9 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">04</div>
+      <div class="num">05</div>
       <h2>运行</h2>
-      <p class="hint">应用后立即重新开始，相当于在原界面按一次「开始」。</p>
+      <p class="hint">应用后立即重新开始（换模型约需 30 秒加载），相当于在原界面按一次「开始」。</p>
     </div>
     <div class="body" style="grid-column:4/13">
       <div class="actions">
@@ -194,7 +218,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">05</div>
+      <div class="num">06</div>
       <h2>外观</h2>
       <p class="hint">字号、配色与明暗。设置存在本机浏览器里。</p>
     </div>
@@ -336,6 +360,54 @@ async function load(){
     $("st").textContent = "未连接";
   }
 }
+/* ── 模型库 ── */
+let MODELS = [], CUR = {};
+function renderModels(){
+  const sel = $("model_sel");
+  sel.innerHTML = '<option value="">（不切换，用当前）</option>' +
+    MODELS.map(m => `<option value="${m.alias}">${m.alias}</option>`).join("");
+  const hit = MODELS.find(m => m.pth === CUR.pth_path);
+  sel.value = hit ? hit.alias : "";
+}
+function pickedModel(){
+  return MODELS.find(m => m.alias === $("model_sel").value) || null;
+}
+async function loadModels(){
+  try{
+    const d = await (await api('/api/models')).json();
+    MODELS = d.models || []; CUR = d.current || {};
+    renderModels();
+  }catch(e){ /* 未授权时静默 */ }
+}
+$("m_add").onclick = async () => {
+  const body = {alias: $("m_alias").value, pth: $("m_pth").value, index: $("m_index").value};
+  const r = await api('/api/models', {method:'POST', headers:{'Content-Type':'application/json'},
+                                      body: JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) { alert(j.error || '保存失败'); return; }
+  MODELS = j.models || []; CUR = j.current || {}; renderModels();
+  $("st").textContent = "已保存到模型库";
+};
+$("m_del").onclick = async () => {
+  const a = $("model_sel").value;
+  if (!a) { alert('先在上面选中一个模型'); return; }
+  if (!confirm('删除登记「' + a + '」？（不会删文件）')) return;
+  const r = await api('/api/models?alias=' + encodeURIComponent(a), {method:'DELETE'});
+  const j = await r.json();
+  MODELS = j.models || []; renderModels();
+};
+$("m_file").onchange = async (ev) => {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  $("st").textContent = "上传中…";
+  const r = await api('/api/upload?name=' + encodeURIComponent(f.name), {method:'POST', body: f});
+  const j = await r.json();
+  if (!r.ok) { alert(j.error || '上传失败'); return; }
+  if (j.path.endsWith('.pth')) $("m_pth").value = j.path; else $("m_index").value = j.path;
+  if (!$("m_alias").value) $("m_alias").value = f.name.replace(/\.[^.]+$/, '');
+  $("st").textContent = "已上传，确认别名后点「存为别名」";
+};
+
 function fill(id, list, cur){
   const sel = $(id);
   sel.innerHTML = list.map(d => `<option value="${d.name}">${d.name} · ${d.api}</option>`).join("");
@@ -347,6 +419,8 @@ $("apply").onclick = async () => {
                  sg_output_device: $("sg_output_device").value,
                  f0method: $("f0method").value };
   NUM.forEach(k => body[k] = parseFloat($(k).value));
+  const m = pickedModel();
+  if (m) { body.pth_path = m.pth; body.index_path = m.index; }
   $("st").textContent = "已下发";
   await api('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
                            body: JSON.stringify(body)});
@@ -357,6 +431,7 @@ $("stop").onclick = async () => {
   setTimeout(load, 800);
 };
 load();
+loadModels();
 setInterval(load, 4000);
 </script>
 </body>
