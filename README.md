@@ -92,7 +92,22 @@ python onnx_rt.py --ep dml0 --block 0.5 --ctx 0.25 --f0 pm
 | `--ctx` | 上下文秒数（给特征/音高的历史），越小越省 |
 | `--f0` | `pm`（parselmouth，快）或 `fcpe`（torch，较慢较好） |
 | `--threads` | 限制 ORT 计算线程数（给游戏/其他程序留核） |
+| `--in` / `--out` | 输入/输出设备：**序号**或**名称关键词**（如 `"CABLE Input"`、`"USB Audio"`） |
+| `--in-sr` / `--out-sr` | 设备采样率，`0` = 用设备默认；**不等于 16k/48k 时自动重采样** |
 | `--gain` | 输出增益 |
+| `--list-devices` | 列出所有音频设备（带序号），选设备前先跑这个 |
+
+### 接虚拟声卡（给 OBS 直接捕获）
+
+```
+1) 装 VB-Audio Virtual Cable（免费，装完重启）
+     -> 系统出现 "CABLE Input"(播放) / "CABLE Output"(录音)
+2) 本工具：  --out "CABLE Input"
+     （要听自己说话就再加一路：用 VoiceMeeter，或 OBS 里开监听）
+3) OBS：音频输入设备 -> 选 "CABLE Output"
+```
+
+麦克风建议用 **WASAPI** 那一项（通常 48k，稳）；用 MME 的 44.1k 也行，工具会自动重采样到 16k。
 
 ## 四、补丁（相对 RVC-WebUI 2.3）
 

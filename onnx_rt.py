@@ -1,16 +1,24 @@
 """RVC 实时变声 · ONNX 版（后端可切：CPU / 2060-DML / 核显-DML）
 
 用法：
-  # 离线自测（不出声，只测耗时）
-  python onnx_rt.py --selftest --ep cpu
-  # 实时（麦克风 -> 扬声器）
-  python onnx_rt.py --ep cpu --block 0.5 --ctx 0.25 --f0 pm
+  python onnx_rt.py --list-devices                 # 列出所有音频设备
+  python onnx_rt.py --selftest --ep cpu            # 离线自测（只报耗时）
+  python onnx_rt.py --ep dml0 --in "USB Audio" --out "CABLE Input"
 
-  --ep     cpu | dml0(2060) | dml1(核显) | cuda
-  --block  块长秒数（延迟≈block+ctx+推理）
-  --ctx    上下文秒数（给特征/音高的历史，越小越省）
-  --f0     pm(快,CPU) | fcpe(torch,较慢)
-  --threads 限制 ORT 计算线程（给游戏留核）
+  --ep           cpu | dml0(2060) | dml1(核显) | cuda
+  --block        块长秒数（延迟≈block+ctx+推理）
+  --ctx          上下文秒数（给特征/音高的历史，越小越省）
+  --f0           pm(快,CPU) | fcpe(torch,较慢)
+  --threads      限制 ORT 计算线程（给游戏留核）
+  --in / --out   输入/输出设备：序号，或名称里的关键词（如 "CABLE Input" / "USB Audio"）
+  --in-sr/--out-sr  设备采样率，0 = 自动取设备默认（会自动重采样，无需设备支持 16k/48k）
+  --gain         输出增益
+
+虚拟声卡工作流（给 OBS 直接捕获）：
+  1) 装 VB-Audio Virtual Cable（免费）→ 系统里出现 "CABLE Input"(播放) / "CABLE Output"(录音)
+  2) 本工具：--out "CABLE Input"
+  3) OBS：麦克风/音频输入 → 选 "CABLE Output"
+  4) 想自己也听到：OBS 里加个音频监听，或用 VoiceMeeter 混合
 """
 from __future__ import annotations
 
@@ -56,6 +64,45 @@ def mk_session(fp, ep, threads=0):
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = max(1, min(4, threads))
     return ort.InferenceSession(fp, so, providers=prov_of(ep))
+
+
+# ---------- 音频设备 ----------
+def list_devices():
+    import sounddevice as sd
+    log("idx | io  | name | hostapi | default_sr")
+    for i, d in enumerate(sd.query_devices()):
+        tag = ("IN " if d["max_input_channels"] > 0 else "") + ("OUT" if d["max_output_channels"] > 0 else "")
+        log("%3d | %-3s | %s | %s | %d" % (i, tag.strip() or "-", d["name"],
+                                           sd.query_hostapis(d["hostapi"])["name"], int(d["default_samplerate"])))
+
+
+def resolve_dev(spec, want_input: bool):
+    """spec: None/'' -> 系统默认; 纯数字 -> 序号; 其他 -> 名称关键词。"""
+    import sounddevice as sd
+    devs = sd.query_devices()
+    if not spec:
+        return None, None
+    ch = "max_input_channels" if want_input else "max_output_channels"
+    if str(spec).isdigit():
+        i = int(spec)
+        if i < 0 or i >= len(devs):
+            raise SystemExit("设备序号越界: %s" % spec)
+        return i, int(devs[i]["default_samplerate"])
+    key = str(spec).lower()
+    for i, d in enumerate(devs):
+        if key in d["name"].lower() and d[ch] > 0:
+            return i, int(d["default_samplerate"])
+    raise SystemExit("找不到%s设备（关键词 %r）。用 --list-devices 看名字。" %
+                     ("输入" if want_input else "输出", spec))
+
+
+def _resample(x, sr_from, sr_to):
+    if sr_from == sr_to:
+        return x
+    from math import gcd
+    g = gcd(sr_from, sr_to)
+    from scipy.signal import resample_poly
+    return resample_poly(x, sr_to // g, sr_from // g).astype(np.float32)
 
 
 # ---------- ONNX 导出 ----------
@@ -117,8 +164,6 @@ def ensure_hubert_onnx():
 
 # ---------- f0 ----------
 class Pitch:
-    """音高提取 + mel 离散化（对齐 rtrvc 的实现）。"""
-
     def __init__(self, method, up_key):
         self.method = method
         self.up_key = up_key
@@ -175,7 +220,6 @@ class Engine:
         self.head = self.ctx // 160
         self.length = self.block // 160
         self.P = self.head + self.length
-        self.ep = ep
         log("block=%.3fs(%d) ctx=%.3fs(%d) frames P=%d" %
             (self.block / SR_IN, self.block, self.ctx / SR_IN, self.ctx, self.P))
         self.gen = mk_session(ensure_gen_onnx(self.head, self.length,
@@ -191,9 +235,7 @@ class Engine:
 
     def run(self):
         t0 = time.perf_counter()
-        # 1) hubert
         feats = self.hub.run(None, {"input_values": self.buf[None].astype(np.float32)})[0]
-        # 2) 对齐到 2 倍帧率（与 rtrvc 一致：末尾补一帧再插值）
         feats = np.concatenate([feats, feats[:, -1:, :]], axis=1)
         f = torch.from_numpy(feats)
         f = torch.nn.functional.interpolate(f.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
@@ -201,7 +243,6 @@ class Engine:
         if phone.shape[1] < self.P:
             pad = np.zeros((1, self.P - phone.shape[1], 768), dtype=np.float32)
             phone = np.concatenate([phone, pad], axis=1)
-        # 3) pitch
         win = self.buf[-(self.block + 800):]
         coarse, pitchf = self.pitch(win)
         if coarse.shape[0] < self.P:
@@ -209,7 +250,6 @@ class Engine:
             pitchf = torch.cat([pitchf[:1].repeat(self.P - pitchf.shape[0]), pitchf])
         coarse = coarse[-self.P:].unsqueeze(0).numpy().astype(np.int64)
         pitchf = pitchf[-self.P:].unsqueeze(0).numpy().astype(np.float32)
-        # 4) 生成器
         audio = self.gen.run(None, {
             "phone": phone, "lengths": np.array([self.P], dtype=np.int64),
             "coarse": coarse, "continuous": pitchf,
@@ -220,8 +260,7 @@ class Engine:
 def selftest(eng, wav):
     log("=== selftest ===")
     blocks = len(wav) // eng.block
-    times = []
-    out = []
+    times, out = [], []
     for i in range(blocks):
         eng.push(wav[i * eng.block:(i + 1) * eng.block])
         a, ms = eng.run()
@@ -232,27 +271,32 @@ def selftest(eng, wav):
     warm = times[3:]
     if warm:
         log("AVG=%.0f ms  MIN=%.0f  MAX=%.0f  (n=%d)" % (sum(warm) / len(warm), min(warm), max(warm), len(warm)))
-    audio = np.concatenate(out)
     import soundfile as sf
-    sf.write("_rt_selftest_out.wav", audio, SR_OUT)
-    log("wrote _rt_selftest_out.wav", len(audio) / SR_OUT, "s")
+    sf.write("_rt_selftest_out.wav", np.concatenate(out), SR_OUT)
+    log("wrote _rt_selftest_out.wav")
 
 
-def realtime(eng, in_name, out_name, gain=1.0):
+def realtime(eng, in_spec, out_spec, in_sr, out_sr, gain=1.0):
     import sounddevice as sd
+
+    in_dev, in_default_sr = resolve_dev(in_spec, True)
+    out_dev, out_default_sr = resolve_dev(out_spec, False)
+    in_sr = int(in_sr) or in_default_sr or SR_IN
+    out_sr = int(out_sr) or out_default_sr or SR_OUT
+    block_in = int(round(eng.block * in_sr / SR_IN))
+    log("设备: in=%s(%sHz%s)  out=%s(%sHz%s)" %
+        (in_spec or "默认", in_sr, "" if in_sr == SR_IN else " -> 内部16k",
+         out_spec or "默认", out_sr, "" if out_sr == SR_OUT else " <- 模型48k"))
 
     q_in = deque()
     q_out = deque()
     stats = []
 
     def in_cb(indata, frames, t, status):
-        if status:
-            pass
         q_in.append(indata[:, 0].copy())
 
     def out_cb(outdata, frames, t, status):
-        need = frames
-        buf = np.empty(0, dtype=np.float32)
+        need, buf = frames, np.empty(0, dtype=np.float32)
         while need > 0 and q_out:
             chunk = q_out[0]
             take = min(len(chunk), need)
@@ -266,21 +310,27 @@ def realtime(eng, in_name, out_name, gain=1.0):
             buf = np.concatenate([buf, np.zeros(need, dtype=np.float32)])
         outdata[:] = buf.reshape(-1, 1)
 
-    ist = sd.InputStream(samplerate=SR_IN, channels=1, blocksize=eng.block,
-                         dtype="float32", callback=in_cb)
-    ost = sd.OutputStream(samplerate=SR_OUT, channels=1, blocksize=eng.block * 3,
+    ist = sd.InputStream(device=in_dev, samplerate=in_sr, channels=1,
+                         blocksize=block_in, dtype="float32", callback=in_cb)
+    ost = sd.OutputStream(device=out_dev, samplerate=out_sr, channels=1,
+                          blocksize=int(round(eng.block * out_sr / SR_IN)),
                           dtype="float32", callback=out_cb)
     ist.start()
     ost.start()
-    log("已开启：说话吧（Ctrl+C 退出）  设备: in=%s out=%s" % (in_name or "default", out_name or "default"))
+    log("已开启，说话吧（Ctrl+C 退出）")
     try:
         while True:
             if not q_in:
                 time.sleep(0.005)
                 continue
-            blk = q_in.popleft()
-            eng.push(blk)
+            raw = q_in.popleft()
+            x16 = _resample(raw, in_sr, SR_IN) if in_sr != SR_IN else raw
+            if len(x16) < eng.block:
+                x16 = np.pad(x16, (0, eng.block - len(x16)))
+            eng.push(x16[:eng.block])
             a, ms = eng.run()
+            if out_sr != SR_OUT:
+                a = _resample(a, SR_OUT, out_sr)
             q_out.append(a * gain)
             stats.append(ms)
             if len(stats) % 20 == 0:
@@ -300,9 +350,18 @@ def main():
     ap.add_argument("--f0", default="pm")
     ap.add_argument("--threads", type=int, default=0)
     ap.add_argument("--gain", type=float, default=1.0)
+    ap.add_argument("--in", dest="in_spec", default="")
+    ap.add_argument("--out", dest="out_spec", default="")
+    ap.add_argument("--in-sr", type=int, default=0)
+    ap.add_argument("--out-sr", type=int, default=0)
+    ap.add_argument("--list-devices", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--selftest-wav", default=r"D:\Hanako-workspace\_rec3_t.wav")
     a = ap.parse_args()
+
+    if a.list_devices:
+        list_devices()
+        return
 
     eng = Engine(a.ep, a.block, a.ctx, a.f0, a.threads)
     if a.selftest:
@@ -310,7 +369,7 @@ def main():
         wav, _ = librosa.load(a.selftest_wav, sr=SR_IN, mono=True)
         selftest(eng, wav.astype(np.float32))
     else:
-        realtime(eng, None, None, a.gain)
+        realtime(eng, a.in_spec, a.out_spec, a.in_sr, a.out_sr, a.gain)
 
 
 if __name__ == "__main__":
