@@ -158,6 +158,32 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
       <div class="num">01</div>
+      <h2>预设</h2>
+      <p class="hint">把「设备 + 模型 + 参数」打包成一套，按一下换整个场景。</p>
+    </div>
+    <div class="body" style="grid-column:4/13">
+      <div class="fields">
+        <div class="sel"><span class="lb">已存预设</span><select id="preset_sel"></select></div>
+      </div>
+      <details class="mgmt">
+        <summary>管理预设（保存当前 / 删除）</summary>
+        <div class="fields" style="margin-top:1.1rem">
+          <label><span class="lb">预设名</span><input id="p_name" type="text" placeholder="例如 直播用 / 练歌"></label>
+          <div>
+            <span class="lb">操作</span>
+            <div class="picks">
+              <button class="tb" id="p_save">保存当前为预设</button>
+              <button class="tb" id="p_del">删除</button>
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section class="grid sec">
+    <div class="head" style="grid-column:1/4">
+      <div class="num">02</div>
       <h2>音频设备</h2>
       <p class="hint">宿主 API 与输入／输出端点。改动后需重新开始才生效。</p>
     </div>
@@ -170,9 +196,9 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">02</div>
+      <div class="num">03</div>
       <h2>模型</h2>
-      <p class="hint">选一个已登记的模型，点「应用并开始」即可切换。</p>
+      <p class="hint">选中即切换（约 30 秒加载）。登记、导入等低频操作在下面。</p>
     </div>
     <div class="body" style="grid-column:4/13">
       <div class="fields">
@@ -201,7 +227,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">03</div>
+      <div class="num">04</div>
       <h2>声音参数</h2>
       <p class="hint">音调、声线、检索与响度。拖动即时改值，点「应用」才下发。</p>
     </div>
@@ -210,7 +236,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">04</div>
+      <div class="num">05</div>
       <h2>引擎节奏</h2>
       <p class="hint">采样长度决定延迟；额外推理时长决定上下文与算力。</p>
     </div>
@@ -219,7 +245,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">05</div>
+      <div class="num">06</div>
       <h2>运行</h2>
       <p class="hint">应用后立即重新开始（换模型约需 30 秒加载），相当于在原界面按一次「开始」。</p>
     </div>
@@ -234,7 +260,7 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 
   <section class="grid sec">
     <div class="head" style="grid-column:1/4">
-      <div class="num">06</div>
+      <div class="num">07</div>
       <h2>外观</h2>
       <p class="hint">字号、配色与明暗。设置存在本机浏览器里。</p>
     </div>
@@ -429,7 +455,14 @@ function fill(id, list, cur){
   sel.innerHTML = list.map(d => `<option value="${d.name}">${d.name} · ${d.api}</option>`).join("");
   if(cur) sel.value = cur;
 }
-$("apply").onclick = async () => {
+/* ── 预设包 ── */
+let PRESETS = [];
+function renderPresets(){
+  const sel = $("preset_sel");
+  sel.innerHTML = '<option value="">（不切换）</option>' +
+    PRESETS.map(p => `<option value="${p.name}">${p.name}</option>`).join("");
+}
+function currentBody(){
   const body = { sg_hostapi: $("sg_hostapi").value,
                  sg_input_device: $("sg_input_device").value,
                  sg_output_device: $("sg_output_device").value,
@@ -437,9 +470,73 @@ $("apply").onclick = async () => {
   NUM.forEach(k => body[k] = parseFloat($(k).value));
   const m = pickedModel();
   if (m) { body.pth_path = m.pth; body.index_path = m.index; }
-  $("st").textContent = "已下发";
+  return body;
+}
+function formFromPreset(p){
+  if (p.sg_hostapi) $("sg_hostapi").value = p.sg_hostapi;
+  if (p.sg_input_device) $("sg_input_device").value = p.sg_input_device;
+  if (p.sg_output_device) $("sg_output_device").value = p.sg_output_device;
+  if (p.f0method) $("f0method").value = p.f0method;
+  NUM.forEach(k => {
+    if (p[k] !== undefined && p[k] !== null) { $(k).value = p[k]; $(k + "_r").value = p[k]; }
+  });
+  const hit = MODELS.find(m => m.pth === p.pth_path);
+  $("model_sel").value = hit ? hit.alias : "";
+}
+async function loadPresets(){
+  try{
+    const d = await (await api('/api/presets')).json();
+    PRESETS = d.presets || [];
+    renderPresets();
+  }catch(e){ /* 未授权时静默 */ }
+}
+$("preset_sel").onchange = async () => {
+  const p = PRESETS.find(x => x.name === $("preset_sel").value);
+  if (!p) return;
+  formFromPreset(p);
+  const body = Object.assign({}, p);
+  delete body.name;
+  $("st").textContent = "正在切换预设（换模型约 30 秒）…";
   await api('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
                            body: JSON.stringify(body)});
+  setTimeout(load, 1500);
+};
+$("p_save").onclick = async () => {
+  const name = ($("p_name").value || "").trim();
+  if (!name) { alert('先填预设名'); return; }
+  const r = await api('/api/presets', {method:'POST', headers:{'Content-Type':'application/json'},
+                                       body: JSON.stringify(Object.assign({name}, currentBody()))});
+  const j = await r.json();
+  if (!r.ok) { alert(j.error || '保存失败'); return; }
+  PRESETS = j.presets || [];
+  renderPresets();
+  $("preset_sel").value = name;
+  $("st").textContent = "预设已保存";
+};
+$("p_del").onclick = async () => {
+  const name = $("preset_sel").value;
+  if (!name) { alert('先在上面选中一个预设'); return; }
+  if (!confirm('删除预设「' + name + '」？（不会影响模型文件）')) return;
+  const r = await api('/api/presets?name=' + encodeURIComponent(name), {method:'DELETE'});
+  const j = await r.json();
+  PRESETS = j.presets || [];
+  renderPresets();
+};
+
+/* ── 模型：选中即加载 ── */
+$("model_sel").onchange = async () => {
+  const m = pickedModel();
+  if (!m) return;                       // 「不切换」不动它
+  $("st").textContent = "正在切换模型（约 30 秒）…";
+  await api('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
+                           body: JSON.stringify({pth_path: m.pth, index_path: m.index})});
+  setTimeout(load, 1500);
+};
+
+$("apply").onclick = async () => {
+  $("st").textContent = "已下发";
+  await api('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
+                           body: JSON.stringify(currentBody())});
   setTimeout(load, 2000);
 };
 $("stop").onclick = async () => {
@@ -448,6 +545,7 @@ $("stop").onclick = async () => {
 };
 load();
 loadModels();
+loadPresets();
 setInterval(load, 4000);
 </script>
 </body>

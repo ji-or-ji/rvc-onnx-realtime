@@ -60,6 +60,7 @@ FIELDS = ["pth_path", "index_path", "sg_hostapi", "sg_wasapi_exclusive",
           "f0method"]
 
 MODELS_FILE = os.path.join(HERE, "models.json")      # 模型库（登记表）
+PRESETS_FILE = os.path.join(HERE, "presets.json")    # 预设包（设备+模型+参数）
 WEIGHTS_DIR = os.path.join(HERE, "assets", "weights")
 INDICES_DIR = os.path.join(HERE, "assets", "indices")
 
@@ -103,6 +104,25 @@ def models_payload():
         pass
     return {"models": _load_models(), "current": cur,
             "weights_dir": "assets/weights", "indices_dir": "assets/indices"}
+
+
+def _load_presets():
+    try:
+        with open(PRESETS_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        ps = d.get("presets") if isinstance(d, dict) else d
+        return ps if isinstance(ps, list) else []
+    except Exception:
+        return []
+
+
+def _save_presets(presets):
+    try:
+        with open(PRESETS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"presets": presets}, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
 
 
 def _page():
@@ -183,6 +203,8 @@ class _H(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(state(), ensure_ascii=False))
             elif self.path.startswith("/api/models"):
                 self._send(200, json.dumps(models_payload(), ensure_ascii=False))
+            elif self.path.startswith("/api/presets"):
+                self._send(200, json.dumps({"presets": _load_presets()}, ensure_ascii=False))
             elif self.path.startswith("/api/devices"):
                 self._send(200, json.dumps(devices(), ensure_ascii=False))
             else:
@@ -233,7 +255,17 @@ class _H(BaseHTTPRequestHandler):
             if not self._authed():
                 self._send(401, json.dumps({"error": "token required"}, ensure_ascii=False))
                 return
-            if self.path.startswith("/api/models"):
+            if self.path.startswith("/api/presets"):
+                name = str(payload.get("name") or "").strip()
+                if not name:
+                    self._send(400, json.dumps({"error": "预设名不能为空"}, ensure_ascii=False)); return
+                body = dict(payload)
+                body.pop("name", None)
+                ps = [p for p in _load_presets() if p.get("name") != name]
+                ps.append({"name": name, **body})
+                _save_presets(ps)
+                self._send(200, json.dumps({"presets": _load_presets()}, ensure_ascii=False))
+            elif self.path.startswith("/api/models"):
                 alias = str(payload.get("alias") or "").strip()
                 pth, idx = _resolve(payload.get("pth")), _resolve(payload.get("index"))
                 if not alias:
@@ -267,10 +299,15 @@ class _H(BaseHTTPRequestHandler):
             return
         try:
             q = parse_qs(urlparse(self.path).query)
-            alias = (q.get("alias") or [""])[0]
-            ms = [m for m in _load_models() if m.get("alias") != alias]
-            _save_models(ms)
-            self._send(200, json.dumps(models_payload(), ensure_ascii=False))
+            if self.path.startswith("/api/presets"):
+                name = (q.get("name") or [""])[0]
+                _save_presets([p for p in _load_presets() if p.get("name") != name])
+                self._send(200, json.dumps({"presets": _load_presets()}, ensure_ascii=False))
+            else:
+                alias = (q.get("alias") or [""])[0]
+                ms = [m for m in _load_models() if m.get("alias") != alias]
+                _save_models(ms)
+                self._send(200, json.dumps(models_payload(), ensure_ascii=False))
         except Exception as e:
             self._send(500, json.dumps({"error": str(e)}, ensure_ascii=False))
 

@@ -13,3 +13,5 @@ _*.err
 _*.tmp
 
 models.json
+
+presets.json
