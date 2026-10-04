@@ -102,6 +102,24 @@
 
 **三个未确认项**（读不到 `gui_v1.py` ~199KB 的中段，因 >50KB 文件只能取头尾）：① 音频线程真实实现 ② bypass 切换瞬间怎么处理缓冲 ③ 换音色有无跨淡化。想钉死这三点，需重派一个**可写**的子代理（只读模式下 browser/exec 会被拦），或人工贴出中段。
 
+### 控制面（已核实，2026-10-04）——RVC Fabric 能否被外部接管
+
+`User_Data/runtime_control/` 下的文件式回路：
+- `command.json`（下行：seq / cmd / ts + 负载）、`status.json`（上行状态）、`sts.json`（离线批量进度，独立文件）、`command.seq`（单调序号）、`worker.pid` 与 `worker.pids`（进程台账）
+- **三段式握手**：派发 seq → 认领 `last_cmd_seq` → 完结标记（`devices_seq` / `stop_seq` / `model_apply`）
+- 命令集：`start / stop / quit / list_devices / convert / sts_cancel / prewarm / set`
+- **参数、换模型、切原声都走同一条 `set`**（在飞时报 `vc.swapping`）；`set` 负载中的 **`function` 就是变声/原声/FX 的开关**
+- 轮询：引擎侧 80ms 读命令；壳侧 ~400ms 读状态；派发后 20ms 轮询回执
+- 另两条通道：**命名共享内存 PCM 桥**（魔数 `FABPCM01`，名 `Local\RVCFabricPcm-{pid}-{epoch}`，**Python 是唯一写入方**，Rust 的 voice bus 读走与音乐混音）；一次性 worker 走 argv + stdout。**无 HTTP/WS 服务端**（Cargo.toml 只有出站 reqwest/ripget）
+
+**接管结论：可行，但本质是「顶替它的壳」，不能与壳并存。**
+前提：同机同用户 + 能找到产品根 + 复刻 ``env_for_runtime``（``TM_VOICE_ROOT`` / ``TM_REALTIME_WORKER=1`` / PATH 前置 Runtime / ``weight_root`` / ``index_root`` / ``rmvpe_root`` / TEMP / ``TM_ACCEL``）+ 原子写 + seq 单调 + 等完成标记。
+
+**五条风险**：① 单槽 mailbox 会盖掉前一条命令（必须发一条等回执再发下一条） ② seq 所有权冲突 ③ Windows 文件占用（WinError 5/32）需重试 ④ 进程归属与孤儿清理（它只杀自己 spawn 的 pid） ⑤ **协议无版本号**——必须钉死 1.6.0。
+另：若引擎跑「原生语音输出」模式，还要先完成 PCM 桥握手；退回自带输出时仅 JSON 文件即可。
+
+**分包模型（值得拄）**：nvidia / amd / nvidia50 三个变体各自是**一整棵独立包（含各自 Runtime）**，不是“一个 Runtime + 开关”；运行期变体装在 ``User_Data/runtimes/<variant>/``，当前变体记在 ``app_config.json``，``accel_backend`` → 环境变量 ``TM_ACCEL``。
+
 ## 已完成（留档，勿重复）
 
 - **修复**：遥控应用参数时**先停流**（避免 CUDA Graph 捕获期间 `empty_cache` 断言崩溃）
