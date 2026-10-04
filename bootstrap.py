@@ -372,7 +372,8 @@ class Boot:
             time.sleep(2.0)      # 留给进度页一次轮询，看到 done 后自动重载
             self.p.stop()        # 让出端口给 web_ui
         log("启动服务：%s" % url)
-        subprocess.Popen([py, "web_ui.py", "--port", str(self.a.port)], cwd=ROOT)
+        subprocess.Popen([py, "web_ui.py", "--port", str(self.a.port),
+                          "--engine", recipe["backend"]], cwd=ROOT)
         log("浏览器打开 %s 即可。听不见声音请检查设备选择。" % url)
         self.save_state(served=time.strftime("%Y-%m-%d %H:%M:%S"))
 

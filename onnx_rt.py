@@ -32,8 +32,11 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.getcwd())
 
 import numpy as np
-import torch
-import onnxruntime as ort
+
+# 运行期不 import torch：torch 自带 cuDNN 9，会顶掉 onnxruntime CUDA EP 需要的 cuDNN 8。
+# 只有导出 ONNX 模型时才在函数内部按需 import torch。
+# onnxruntime 也不在模块级导入（挪到 mk_session 里惰性导入）：
+# 只要不用 ONNX 引擎，缺 onnxruntime 也能跑（torch 高档档位就不需要它）。
 
 SR_IN = 16000
 SR_OUT = 48000
@@ -58,6 +61,7 @@ def prov_of(ep: str):
 
 
 def mk_session(fp, ep, threads=0):
+    import onnxruntime as ort
     so = ort.SessionOptions()
     so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
     if threads > 0:
@@ -106,23 +110,24 @@ def _resample(x, sr_from, sr_to):
 
 
 # ---------- ONNX 导出 ----------
-class _GenWrap(torch.nn.Module):
-    def __init__(self, net, head, length):
-        super().__init__()
-        self.net = net
-        self.head = int(head)
-        self.length = int(length)
-
-    def forward(self, phone, lengths, coarse, continuous, speaker):
-        return self.net.infer(phone, lengths, coarse, continuous, speaker,
-                              self.head, self.length, self.length)[0]
-
-
 def ensure_gen_onnx(head, length, path):
     if os.path.exists(path):
         return path
+    import torch                                    # 仅导出时需要（会把 CUDA EP 顶掉，故不常驻）
     log("导出生成器 ONNX: head=%d length=%d -> %s" % (head, length, path))
     from infer.rtrvc import get_synthesizer
+
+    class _GenWrap(torch.nn.Module):
+        def __init__(self, net, head, length):
+            super().__init__()
+            self.net = net
+            self.head = int(head)
+            self.length = int(length)
+
+        def forward(self, phone, lengths, coarse, continuous, speaker):
+            return self.net.infer(phone, lengths, coarse, continuous, speaker,
+                                  self.head, self.length, self.length)[0]
+
     net_g, _ = get_synthesizer(PTH, torch.device("cpu"))
     net_g.eval()
     P = head + length
@@ -140,6 +145,7 @@ def ensure_gen_onnx(head, length, path):
 def ensure_hubert_onnx():
     if os.path.exists(HUBERT_ONNX):
         return HUBERT_ONNX
+    import torch                                    # 仅导出时需要
     log("导出 hubert ONNX ->", HUBERT_ONNX)
     from infer.hubert import load_hubert_model
 
@@ -174,16 +180,18 @@ class Pitch:
         if method == "pm":
             import parselmouth  # noqa
         elif method == "fcpe":
+            import torch
             from infer.fcpe import FCPEInfer
             self._fc = FCPEInfer(torch.device("cpu"))
 
     def _post(self, f0_np):
-        f0 = torch.from_numpy(np.asarray(f0_np, dtype=np.float32))
-        mel = 1127 * torch.log(1 + f0 / 700)
-        mel[mel > 0] = (mel[mel > 0] - self.f0_mel_min) * 254 / (self.f0_mel_max - self.f0_mel_min) + 1
+        f0 = np.asarray(f0_np, dtype=np.float32)
+        mel = 1127 * np.log(1 + f0 / 700)
+        pos = mel > 0
+        mel[pos] = (mel[pos] - self.f0_mel_min) * 254 / (self.f0_mel_max - self.f0_mel_min) + 1
         mel[mel <= 1] = 1
         mel[mel > 255] = 255
-        return torch.round(mel).long(), f0
+        return np.round(mel).astype(np.int64), f0
 
     def __call__(self, x16: np.ndarray):
         n = x16.shape[0]
@@ -199,6 +207,7 @@ class Pitch:
                 f0 = np.pad(f0, (0, p_len - len(f0)))
             f0 = f0[:p_len]
         else:
+            import torch
             f0 = self._fc.infer(torch.from_numpy(x16).unsqueeze(0).float(),
                                 sr=16000, decoder_mode="local_argmax",
                                 threshold=0.006).squeeze().detach().cpu().numpy()
@@ -226,6 +235,7 @@ class Engine:
                                               "_rtgen_c%d_b%d.onnx" % (self.head, self.length)),
                               ep, threads)
         self.hub = mk_session(ensure_hubert_onnx(), ep, threads)
+        log("EP 实际生效:", self.gen.get_providers())
         self.pitch = Pitch(f0method, up_key)
         self.buf = np.zeros(self.ctx + self.block, dtype=np.float32)
 
@@ -237,19 +247,19 @@ class Engine:
         t0 = time.perf_counter()
         feats = self.hub.run(None, {"input_values": self.buf[None].astype(np.float32)})[0]
         feats = np.concatenate([feats, feats[:, -1:, :]], axis=1)
-        f = torch.from_numpy(feats)
-        f = torch.nn.functional.interpolate(f.permute(0, 2, 1), scale_factor=2).permute(0, 2, 1)
-        phone = f[:, :self.P, :].contiguous().numpy().astype(np.float32)
+        # 特征 x2 上采样：等价于 RVC 的 F.interpolate(scale_factor=2, mode='nearest')，纯 numpy 免 torch
+        phone = np.repeat(feats, 2, axis=1)[:, :self.P, :].astype(np.float32)
         if phone.shape[1] < self.P:
             pad = np.zeros((1, self.P - phone.shape[1], 768), dtype=np.float32)
             phone = np.concatenate([phone, pad], axis=1)
         win = self.buf[-(self.block + 800):]
         coarse, pitchf = self.pitch(win)
         if coarse.shape[0] < self.P:
-            coarse = torch.cat([coarse[:1].repeat(self.P - coarse.shape[0]), coarse])
-            pitchf = torch.cat([pitchf[:1].repeat(self.P - pitchf.shape[0]), pitchf])
-        coarse = coarse[-self.P:].unsqueeze(0).numpy().astype(np.int64)
-        pitchf = pitchf[-self.P:].unsqueeze(0).numpy().astype(np.float32)
+            k = self.P - coarse.shape[0]
+            coarse = np.concatenate([np.repeat(coarse[:1], k), coarse])
+            pitchf = np.concatenate([np.repeat(pitchf[:1], k), pitchf])
+        coarse = coarse[-self.P:][None].astype(np.int64)
+        pitchf = pitchf[-self.P:][None].astype(np.float32)
         audio = self.gen.run(None, {
             "phone": phone, "lengths": np.array([self.P], dtype=np.int64),
             "coarse": coarse, "continuous": pitchf,
@@ -422,6 +432,8 @@ def main():
     ap.add_argument("--in-sr", type=int, default=0)
     ap.add_argument("--out-sr", type=int, default=0)
     ap.add_argument("--list-devices", action="store_true")
+    ap.add_argument("--export-models", action="store_true",
+                    help="只导出该 block/ctx 对应的 ONNX 后退出（需 torch+onnx，用非 CUDA venv 跑）")
     ap.add_argument("--dev-block", type=float, default=0.05,
                     help="设备回调块长(秒)，音频卡顿就调大(0.08~0.15)")
     ap.add_argument("--prefill", type=int, default=1, help="输出预铺块数，抗抖动")
@@ -431,6 +443,14 @@ def main():
 
     if a.list_devices:
         list_devices()
+        return
+
+    if a.export_models:
+        head = int(SR_IN * a.ctx) // 160
+        length = int(SR_IN * a.block) // 160
+        ensure_gen_onnx(head, length, "_rtgen_c%d_b%d.onnx" % (head, length))
+        ensure_hubert_onnx()
+        log("导出完成：head=%d length=%d" % (head, length))
         return
 
     eng = Engine(a.ep, a.block, a.ctx, a.f0, a.threads)

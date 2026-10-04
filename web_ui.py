@@ -69,6 +69,7 @@ def apply_contract(ctrl, path):
             print("[web_ui] f0method=%s 在 ONNX 引擎暂不支持，降级为 pm" % fm, flush=True)
         ctrl.cfg["f0"] = F0_MAP.get(fm, "pm")
         ctrl._thr_gate = 10 ** (ctrl.cfg["threshold"] / 20.0)
+        ctrl.contract = dict(c)
         snap = dict(ctrl.cfg)
     print("[web_ui] 契约已载入：block=%.3f ctx=%.3f up_key=%d threshold=%.1f in=%s out=%s" %
           (snap["block"], snap["ctx"], snap["up_key"], snap["threshold"],
@@ -90,9 +91,11 @@ class Controller:
                       "in": 0.0, "out": 0.0, "xrun_in": 0, "xrun_out": 0, "gate": 0,
                       "in_dev": "", "out_dev": "", "in_sr": 0, "out_sr": 0}
         self._stop = threading.Event()
-        self._thr_gate = 10 ** (-60.0 / 20.0)
         self._thr = None
+        self._thr_gate = 10 ** (-60.0 / 20.0)
         self._gain = 1.0
+        self.engine = "onnx"        # onnx | torch-cuda
+        self.contract = {}          # 契约原文（torch 引擎需要 pth/index 等字段）
 
     # --- 对外 ---
     def snapshot(self):
@@ -157,8 +160,21 @@ class Controller:
                 coinit = None
         try:
             self._put(phase="loading", msg="正在构建推理引擎（首次较慢）…")
-            eng = rt.Engine(cfg["ep"], cfg["block"], cfg["ctx"], cfg["f0"],
-                            cfg["threads"], cfg["up_key"])
+            if self.engine == "torch-cuda":
+                from torch_engine import TorchEngine
+                eng = TorchEngine(self.contract)
+            else:
+                eng = rt.Engine(cfg["ep"], cfg["block"], cfg["ctx"], cfg["f0"],
+                                cfg["threads"], cfg["up_key"])
+
+            # 预热：先跑一块静音。否则首块要 1~2 秒（CUDA graph / 算子首次编译），
+            # 这期间输入环会堆积，开流后一开始就积压、爆发欠载。
+            self._put(msg="预热引擎（首块较慢）…")
+            try:
+                eng.push(np.zeros(eng.block, dtype=np.float32))
+                eng.run()
+            except Exception as e:
+                self._put(msg="预热失败（忽略）：%s" % e)
             try:
                 in_dev, in_def = rt.resolve_dev(cfg["in_spec"], True)
             except SystemExit as e:
@@ -296,7 +312,9 @@ class Controller:
                           queue=round(q, 2),
                           lat=round(queued / out_sr * 1000.0, 1),
                           xrun_in=xr["in"], xrun_out=xr["out"], gate=gcount, **lv)
-        except Exception as e:  # noqa
+        except BaseException as e:  # 包括 SystemExit：RVC 内部会用 sys.exit 报错
+            import traceback
+            traceback.print_exc()
             self._put(phase="error", msg="%s: %s" % (type(e).__name__, e))
         finally:
             for s in (ist, ost):
@@ -395,10 +413,13 @@ def main():
     ap.add_argument("--prefill", type=int, default=1, help="输出预铺块数")
     ap.add_argument("--config", default=os.path.join("configs", "config.json"),
                     help="参数契约（配方写入的文件）")
+    ap.add_argument("--engine", default="", help="onnx | torch-cuda（默认 onnx）")
     a = ap.parse_args()
     CTRL.dev_block = a.dev_block
     CTRL.prefill = a.prefill
+    CTRL.engine = a.engine or "onnx"
     apply_contract(CTRL, a.config)
+    print("[web_ui] 引擎=%s" % CTRL.engine, flush=True)
     print("RVC Web console -> http://%s:%d  (dev-block=%.3fs prefill=%d)"
           % (a.host, a.port, a.dev_block, a.prefill), flush=True)
     uvicorn.run(app, host=a.host, port=a.port, log_level="warning")
