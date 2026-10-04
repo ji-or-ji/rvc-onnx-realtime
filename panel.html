@@ -106,6 +106,15 @@ button.on{background:var(--ink);color:var(--paper)}
 .sub{font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
   color:var(--muted);margin:.9rem 0 .5rem}
 
+/* 罕见功能收进抽屉：默认只留「选模型」 */
+details.mgmt{margin-top:1.1rem;border-top:1px solid var(--ink);padding-top:.75rem}
+details.mgmt>summary{cursor:pointer;list-style:none;font-size:.76rem;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+details.mgmt>summary::-webkit-details-marker{display:none}
+details.mgmt>summary::after{content:"  ＋"}
+details.mgmt[open]>summary::after{content:"  －"}
+details.mgmt[open]>summary{color:var(--ink)}
+
 footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
   font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
   display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}
@@ -163,23 +172,30 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
     <div class="head" style="grid-column:1/4">
       <div class="num">02</div>
       <h2>模型</h2>
-      <p class="hint">给模型起个名字，之后一点就能换。登记表存在引擎那边，电脑和手机共用。</p>
+      <p class="hint">选一个已登记的模型，点「应用并开始」即可切换。</p>
     </div>
-    <div class="fields body" style="grid-column:4/13">
-      <div class="sel"><span class="lb">已存模型</span><select id="model_sel"></select></div>
-      <label><span class="lb">别名</span><input id="m_alias" type="text" placeholder="例如 御风 o3"></label>
-      <label><span class="lb">.pth 路径</span><input id="m_pth" type="text" placeholder="assets/weights/x.pth"></label>
-      <label><span class="lb">.index 路径（必填）</span><input id="m_index" type="text" placeholder="assets/indices/x.index"></label>
-      <div>
-        <span class="lb">操作</span>
-        <div class="picks">
-          <button class="tb" id="m_add">存为别名</button>
-          <button class="tb" id="m_del">删除</button>
-          <label class="tb" style="margin:0;cursor:pointer">上传文件
-            <input type="file" id="m_file" accept=".pth,.index" style="display:none">
-          </label>
-        </div>
+    <div class="body" style="grid-column:4/13">
+      <div class="fields">
+        <div class="sel"><span class="lb">已存模型</span><select id="model_sel"></select></div>
       </div>
+      <details class="mgmt">
+        <summary>管理模型（登记 / 导入 / 删除）</summary>
+        <div class="fields" style="margin-top:1.1rem">
+          <label><span class="lb">别名</span><input id="m_alias" type="text" placeholder="给这个音色起个名字"></label>
+          <label><span class="lb">.pth 路径</span><input id="m_pth" type="text" placeholder="assets/weights/example.pth"></label>
+          <label><span class="lb">.index 路径（必填）</span><input id="m_index" type="text" placeholder="assets/indices/example.index"></label>
+          <div>
+            <span class="lb">操作</span>
+            <div class="picks">
+              <button class="tb" id="m_add">存为别名</button>
+              <button class="tb" id="m_del">删除</button>
+              <label class="tb" style="margin:0;cursor:pointer">上传文件
+                <input type="file" id="m_file" accept=".pth,.index" style="display:none">
+              </label>
+            </div>
+          </div>
+        </div>
+      </details>
     </div>
   </section>
 
