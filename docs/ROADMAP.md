@@ -23,7 +23,15 @@
 
 ## 参考：RVC Fabric（图灵镜）功能清单 — 待评估，非承诺
 
-同赛道开源产品（Tauri + Rust + React 桌面客户端，MIT，自述「基于 RVC WebUI 深度定制」）。它比我们多的能力：
+- 仓库：https://github.com/Turing-Mirror/RVC-Fabric （MIT；CNB 制品镜像：https://cnb.cool/Turing-Mirror/RVC-Fabric-Releases ）
+- **架构（已核实）**：Tauri(Rust) + React 桌面外壳 ↔ Python 承担全部计算，**两者用 JSON 文件协议通信**；上游 RVC WebUI 的 Gradio 作为高级功能随包保留。
+  → 与我们「引擎 / 外壳分离」同构；差别只在外壳：他们选 Tauri（开箱即用、可深度定制），我们选浏览器（免安装 + 手机遥控）。
+- 可直接借鉴的三处：
+  1. 他们 2026-10-04 提交「**引擎：实时处理抽成公共模块，离线渲染和实时变声共用一份**」——正是我们 `web_ui` 与 `realtime_gui` 两条音频路径的痛点解法
+  2. 仓库内置 `VBCABLE/`：虚拟声卡随安装流程一起装（我们 bootstrap 可照做）
+  3. 致谢含 TorchGate → 噪声门/压缩是 **Python 后级** 实现 ⇒ **A/B 原声切换与 DSP 链都能在 Python 侧做**，不必动前端
+
+它比我们多的能力：
 
 | 功能 | 它的效果 | 我们的现状 | 代价 |
 | --- | --- | --- | --- |
