@@ -120,6 +120,18 @@
 
 **分包模型（值得拄）**：nvidia / amd / nvidia50 三个变体各自是**一整棵独立包（含各自 Runtime）**，不是“一个 Runtime + 开关”；运行期变体装在 ``User_Data/runtimes/<variant>/``，当前变体记在 ``app_config.json``，``accel_backend`` → 环境变量 ``TM_ACCEL``。
 
+### 控制面（已核实，2026-10-04）——VC Client (w-okada/voice-changer)
+
+**先纠正一个误称**：所谓“官方 WebSocket 远程控制”是半个误称。同一端口（默认 18888，默认只绑 127.0.0.1）上：**REST（FastAPI）承担全部控制与状态；Socket.IO（`/test`）只跑实时音频，不是控制总线**。
+
+- 启动远程 = 两件事：`--host` 放开绑定 + `--allowed-origins` 把管理台 Origin 加白名单（没有单独的“远程模式”开关）
+- REST 端点：`GET /info`（全量状态）、`GET /performance`、**`POST /update_settings`（主控制通道，multipart 表单，`key`+`val`，val 一律字符串）**、`POST /load_model`、`POST /upload_file`+`concat_uploaded_file`（装新模型）、`GET /onnx`、`POST /test`（唯一 JSON body）
+- **键名与我们的契约完全不同**：音高=`tran`、检索=`indexRatio`、额外时长=`extraConvertSize`、旁路=`passThrough`、f0=`f0Detector`、模型=`modelSlotIndex`、设备=`serverInputDeviceId`/`serverOutputDeviceId`（服务端出声需 `enableServerAudio=1`）
+- **无鉴权**：只靠 `--host` 绑定 + Origin 白名单（我们的令牌层反而是超前的一步）
+- 已验证版本：master v2.2.2-beta（客户端库 1.0.182）
+
+**坑**：① 键名按引擎类型分派（RVC 用 `tran`，so-vits 另有 `clusterInferRatio`/`noiseScale`，MMVC 用 `f0Factor`），一套键打不了所有引擎 ② **chunk（采样长度）没有 REST 键**（在客户端 AudioWorklet 里），纯服务端场景就是不支持 ③ 表单/JSON 混用，且 `/load_model` 成功时不回 info ④ 无鉴权 + Origin 校验两处规则不一致（REST 无 Origin 就放行，Socket.IO 会校验）⑤ **接口无版本化**——客户端仍在调 `GET /model_type`，而 master 已无此路由（404）
+
 ## 已完成（留档，勿重复）
 
 - **修复**：遥控应用参数时**先停流**（避免 CUDA Graph 捕获期间 `empty_cache` 断言崩溃）
