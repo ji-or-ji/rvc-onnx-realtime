@@ -1,5 +1,5 @@
 diff --git "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py.bak-preset" "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py"
-index bf3e40a..cb32542 100644
+index bf3e40a..a84c053 100644
 --- "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py.bak-preset"
 +++ "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py"
 @@ -410,8 +410,14 @@ if __name__ == "__main__":
@@ -27,7 +27,7 @@ index bf3e40a..cb32542 100644
                              "index_rate": values["index_rate"],
                              # "device_latency": values["device_latency"],
                              "block_time": values["block_time"],
-@@ -517,11 +524,60 @@ if __name__ == "__main__":
+@@ -517,11 +524,73 @@ if __name__ == "__main__":
                  elif event == "O_noise_reduce":
                      self.gui_config.O_noise_reduce = values["O_noise_reduce"]
                  elif event in ["vc", "im"]:
@@ -68,6 +68,19 @@ index bf3e40a..cb32542 100644
 +                        "index_rate": float(p.get("index_rate", gap("index_rate", 0.0))),
 +                        "pm": _f0 == "pm", "rmvpe": _f0 == "rmvpe", "fcpe": _f0 == "fcpe",
 +                    }
++                    # 先停流：原版「参数变更」的语义就是停流（改完再按开始）。
++                    # 不停流就直接 start_vc() 会撞上：音频回调正在做 CUDA Graph 捕获时，
++                    # start_vc() 里的 torch.cuda.empty_cache() 会触发
++                    # “captures_underway.empty() INTERNAL ASSERT FAILED”（已实测踩到）。
++                    try:
++                        self.stop_stream()
++                        time.sleep(0.3)
++                        try:
++                            torch.cuda.synchronize()
++                        except Exception:
++                            pass
++                    except Exception:
++                        pass
 +                    if self.set_values(vals):
 +                        for _k, _v in vals.items():
 +                            try:
