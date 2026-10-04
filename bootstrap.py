@@ -362,19 +362,27 @@ class Boot:
             log("已按要求停在起服务之前。")
             return
         py = self.env_py()
-        url = "http://127.0.0.1:%d" % self.a.port
+        # 高档档位 = 原版引擎（已验证流畅）；ONNX 轻量档才用 web_ui
+        if recipe["backend"] == "torch-cuda":
+            target = "realtime_gui.py"
+            url = "http://127.0.0.1:8898"        # 遥控面板（原版窗口会同时打开）
+            args = [py, target]
+        else:
+            target = "web_ui.py"
+            url = "http://127.0.0.1:%d" % self.a.port
+            args = [py, target, "--port", str(self.a.port),
+                    "--engine", recipe["backend"]]
         if self.a.dry_run:
-            log("（dry-run）将启动：%s web_ui.py --port %d" % (py, self.a.port))
+            log("（dry-run）将启动：%s" % " ".join(args[:2]))
             return
         if self.p:
-            self.p.set(step="启动服务", pct=97, msg="正在拉起控制台…")
+            self.p.set(step="启动服务", pct=97, msg="正在拉起%s…" % target)
             self.p.finish()
             time.sleep(2.0)      # 留给进度页一次轮询，看到 done 后自动重载
             self.p.stop()        # 让出端口给 web_ui
-        log("启动服务：%s" % url)
-        subprocess.Popen([py, "web_ui.py", "--port", str(self.a.port),
-                          "--engine", recipe["backend"]], cwd=ROOT)
-        log("浏览器打开 %s 即可。听不见声音请检查设备选择。" % url)
+        log("启动 %s：%s" % (target, url))
+        subprocess.Popen(args, cwd=ROOT)
+        log("浏览器打开 %s 即可（原版窗口也会同时出现，那是引擎本体）。" % url)
         self.save_state(served=time.strftime("%Y-%m-%d %H:%M:%S"))
 
 
