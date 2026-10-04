@@ -109,7 +109,24 @@ python onnx_rt.py --ep dml0 --block 0.5 --ctx 0.25 --f0 pm
 
 麦克风建议用 **WASAPI** 那一项（通常 48k，稳）；用 MME 的 44.1k 也行，工具会自动重采样到 16k。
 
-## 四、补丁（相对 RVC-WebUI 2.3）
+## 四、Web 控制台（浏览器界面，推荐）
+
+不想看简陋的 Tk 窗口就用这个。**推理仍在本地 Python，浏览器只当控制台**，所以跨平台（Windows 挂 DirectML、Linux 挂 CUDA、Mac 挂 CoreML 都能用同一套界面）。
+
+```
+双击 launcher\启动-Web面板.bat        （自动开浏览器 http://127.0.0.1:8899）
+
+或手动：
+  python web_ui.py                    # 默认 127.0.0.1:8899
+  python web_ui.py --host 0.0.0.0     # 手机/平板同一局域网也能开
+```
+
+界面提供：设备下拉（带一键「送 OBS（CABLE）」）、后端切换、块长/上下文/增益滑杆、实时延迟 + 电平表。
+后端 / 块长 / f0 改动需重新「开始」；增益即时生效。
+
+文件：`web_ui.py`（FastAPI + WebSocket 后端）、`web/index.html`（单文件 UI，无外部依赖、可离线）。
+
+## 五、补丁（相对 RVC-WebUI 2.3）
 
 | 补丁 | 文件 | 作用 |
 |---|---|---|
@@ -119,7 +136,7 @@ python onnx_rt.py --ep dml0 --block 0.5 --ctx 0.25 --f0 pm
 
 > 补丁用 `git diff` 生成，打之前请确认上游版本一致。
 
-## 五、坑与注意
+## 六、坑与注意
 
 1. **DirectML 默认适配器是 0 号**（多数机器上是独显）。想跑核显必须显式指定 `device_id=1`
    （ORT）或 `RVC_DML_DEVICE`（torch）。否则所有"核显"测试其实是独显跑出来的。

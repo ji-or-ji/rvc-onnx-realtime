@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RVC 实时变声 · 控制台</title>
+<style>
+:root{
+  --bg:#0e1015; --panel:#161922; --panel2:#1c202b; --line:#272c38;
+  --text:#e8eaf0; --dim:#8b93a7; --accent:#6c8cff; --accent2:#39d0a0;
+  --warn:#f0b34a; --err:#ef6b6b; --r:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:radial-gradient(1200px 600px at 15% -10%,#1b2233 0%,var(--bg) 55%) fixed;
+  color:var(--text);font:14px/1.5 "Segoe UI",system-ui,-apple-system,"Noto Sans SC",sans-serif;
+  padding:22px;-webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto}
+header{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.logo{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,var(--accent),#8a5cff);
+  display:grid;place-items:center;font-size:19px;box-shadow:0 6px 20px rgba(108,140,255,.32)}
+h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px}
+.sub{color:var(--dim);font-size:12px;margin-top:1px}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;
+  background:var(--panel);border:1px solid var(--line);font-size:12.5px;color:var(--dim)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.dot.on{background:var(--accent2);box-shadow:0 0 0 4px rgba(57,208,160,.14);animation:pulse 1.6s infinite}
+.dot.load{background:var(--warn);animation:pulse 1s infinite}
+.dot.err{background:var(--err)}
+@keyframes pulse{50%{opacity:.45}}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel2);color:var(--text);
+  padding:9px 15px;border-radius:10px;transition:.15s}
+button:hover{border-color:#3a4a66;transform:translateY(-1px)}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+button.primary{background:linear-gradient(135deg,var(--accent),#7d5cff);border-color:transparent;font-weight:600;
+  box-shadow:0 6px 18px rgba(108,140,255,.28)}
+button.danger{background:#3a1f24;border-color:#5c2b33;color:#ffb3b3}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+.card{background:linear-gradient(180deg,var(--panel) 0%,#14171f 100%);border:1px solid var(--line);
+  border-radius:var(--r);padding:16px}
+.card h2{margin:0 0 13px;font-size:12px;font-weight:600;letter-spacing:.9px;text-transform:uppercase;color:var(--dim)}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}
+@media(max-width:860px){.c4,.c5,.c6,.c7,.c8{grid-column:span 12}}
+label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+select,input[type=text]{width:100%;padding:9px 10px;border-radius:9px;background:#0f1219;
+  border:1px solid var(--line);color:var(--text);font:inherit;outline:none}
+select:focus,input:focus{border-color:var(--accent)}
+.field{margin-bottom:12px}.field:last-child{margin-bottom:0}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.chip{padding:7px 11px;font-size:12.5px;border-radius:9px}
+.chip.active{background:rgba(108,140,255,.16);border-color:var(--accent);color:#c9d6ff}
+.slider{display:flex;align-items:center;gap:11px}
+input[type=range]{-webkit-appearance:none;flex:1;height:4px;border-radius:3px;background:#2a3140;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 0 4px rgba(108,140,255,.15);cursor:pointer}
+.val{min-width:62px;text-align:right;font-variant-numeric:tabular-nums;color:#cdd6ee;font-size:12.5px}
+.metric{display:flex;align-items:baseline;gap:8px}
+.big{font-size:40px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-1px;
+  background:linear-gradient(135deg,#eef2ff,#9db3ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.unit{color:var(--dim);font-size:13px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12.5px;margin-top:12px}
+.kv dt{color:var(--dim)}.kv dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.meter{height:9px;border-radius:6px;background:#0f1219;border:1px solid var(--line);overflow:hidden;margin-top:5px}
+.meter i{display:block;height:100%;width:0;border-radius:6px;transition:width .12s linear}
+.m-in i{background:linear-gradient(90deg,#2f8f6a,#39d0a0)}
+.m-out i{background:linear-gradient(90deg,#4356c9,#6c8cff)}
+.mrow{margin-bottom:10px}
+.mrow span{font-size:12px;color:var(--dim)}
+.note{color:var(--dim);font-size:12px;margin-top:10px;line-height:1.6}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#9aa6c4}
+.err-line{margin-top:11px;padding:9px 11px;border-radius:9px;background:#3a1f24;border:1px solid #5c2b33;
+  color:#ffc4c4;font-size:12.5px;display:none}
+footer{color:var(--dim);font-size:12px;text-align:center;margin-top:20px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">🎙</div>
+    <div>
+      <h1>RVC 实时变声</h1>
+      <div class="sub">Web 控制台 · 推理在本地 Python，界面跨平台</div>
+    </div>
+    <div class="spacer"></div>
+    <span class="pill"><span class="dot" id="dot"></span><span id="phase">未连接</span></span>
+    <button class="primary" id="toggle">开始</button>
+  </header>
+
+  <div class="grid">
+    <div class="card c6">
+      <h2>音频设备</h2>
+      <div class="field">
+        <label>输入（麦克风）</label>
+        <select id="in_dev"></select>
+      </div>
+      <div class="field">
+        <label>输出（监听耳机 / 虚拟声卡）</label>
+        <select id="out_dev"></select>
+      </div>
+      <div class="row">
+        <button class="chip" id="q_mon">监听本机</button>
+        <button class="chip" id="q_obs">送 OBS（CABLE）</button>
+        <button class="chip" id="q_refresh">刷新设备</button>
+      </div>
+      <div class="note" id="dev_note">给 OBS 用：输出选 <b>CABLE Input</b>，再在 OBS 里加音频输入选 <b>CABLE Output</b>。</div>
+    </div>
+
+    <div class="card c6">
+      <h2>引擎</h2>
+      <div class="field">
+        <label>后端</label>
+        <div class="row" id="ep_row">
+          <button class="chip" data-ep="dml0">RTX 2060</button>
+          <button class="chip" data-ep="cpu">CPU</button>
+          <button class="chip" data-ep="dml1">核显</button>
+          <button class="chip" data-ep="cuda">CUDA</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>块长（越小延迟越低，越吃性能）</label>
+        <div class="slider"><input type="range" id="block" min="0.2" max="1" step="0.05" value="0.5"><span class="val" id="block_v">0.50 s</span></div>
+      </div>
+      <div class="field">
+        <label>上下文</label>
+        <div class="slider"><input type="range" id="ctx" min="0.1" max="0.6" step="0.05" value="0.25"><span class="val" id="ctx_v">0.25 s</span></div>
+      </div>
+      <div class="field">
+        <label>输出增益</label>
+        <div class="slider"><input type="range" id="gain" min="0" max="3" step="0.05" value="1"><span class="val" id="gain_v">1.00×</span></div>
+      </div>
+    </div>
+
+    <div class="card c5">
+      <h2>实时</h2>
+      <div class="metric"><span class="big" id="ms">0</span><span class="unit">ms / 块</span></div>
+      <dl class="kv">
+        <dt>已处理</dt><dd id="blocks">0 块</dd>
+        <dt>输出积压</dt><dd id="queue">0</dd>
+        <dt>输入设备</dt><dd id="i_dev" class="mono">-</dd>
+        <dt>输出设备</dt><dd id="o_dev" class="mono">-</dd>
+      </dl>
+      <div class="err-line" id="errline"></div>
+    </div>
+
+    <div class="card c7">
+      <h2>电平</h2>
+      <div class="mrow"><span>麦克风</span><div class="meter m-in"><i id="lv_in"></i></div></div>
+      <div class="mrow"><span>输出</span><div class="meter m-out"><i id="lv_out"></i></div></div>
+      <div class="note">
+        <b>f0 提取</b>：
+        <button class="chip" data-f0="pm">pm（快）</button>
+        <button class="chip" data-f0="fcpe">fcpe（准）</button>
+        <div style="margin-top:9px"><b>注意</b>：后端 / 块长 / f0 改动需重新开始才生效；增益即时生效。</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>首次开始会导出 ONNX 并建图，慢几秒属正常 · 端口默认 8899，可用 <span class="mono">--host 0.0.0.0</span> 让手机开</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = { cfg:{ep:"dml0", block:0.5, ctx:0.25, f0:"pm", gain:1, up_key:12, in_spec:"", out_spec:""},
+                devices:[], running:false, timer:null };
+let ws;
+
+function connect(){
+  ws = new WebSocket((location.protocol==="https:"?"wss":"ws")+"://"+location.host+"/ws");
+  ws.onopen = ()=>{ $("phase").textContent="已连接"; loadDevices(); };
+  ws.onclose = ()=>{ setDot("","未连接"); setTimeout(connect,1500); };
+  ws.onmessage = e => { const m = JSON.parse(e.data);
+    if(m.type==="devices") renderDevices(m.devices);
+    if(m.type==="hello"||m.type==="state") applyState(m.payload);
+  };
+}
+function send(o){ if(ws&&ws.readyState===1) ws.send(JSON.stringify(o)); }
+function loadDevices(){ send({cmd:"devices"}); }
+
+function renderDevices(list){
+  state.devices = list;
+  const mk = (sel, want, cur)=>{
+    const keep = sel.value; sel.innerHTML="";
+    sel.appendChild(new Option("系统默认",""));
+    list.filter(d=>want==="in"?d.io.includes("in"):d.io.includes("out")).forEach(d=>{
+      sel.appendChild(new Option(d.name+"  ·  "+d.api+"  ·  "+d.sr, String(d.i)));
+    });
+    sel.value = cur||keep||"";
+  };
+  mk($("in_dev"),"in", state.cfg.in_spec);
+  mk($("out_dev"),"out", state.cfg.out_spec);
+}
+function findCable(){
+  const c = state.devices.find(d=>d.name.toLowerCase().includes("cable input") && d.api.includes("WASAPI"))
+        || state.devices.find(d=>d.name.toLowerCase().includes("cable input"));
+  return c? String(c.i) : null;
+}
+function setDot(cls,txt){ $("dot").className="dot "+cls; $("phase").textContent=txt; }
+
+function applyState(p){
+  if(!p) return;
+  state.phase = p.phase;
+  state.running = (p.phase==="running");
+  const cls = p.phase==="running"?"on": p.phase==="loading"?"load": p.phase==="error"?"err":"";
+  setDot(cls, {idle:"空闲",loading:"构建中…",running:"运行中",error:"出错"}[p.phase]||p.phase);
+  $("toggle").textContent = state.running||p.phase==="loading" ? "停止" : "开始";
+  $("toggle").classList.toggle("danger", state.running||p.phase==="loading");
+  $("ms").textContent = Math.round(p.ms||0);
+  $("blocks").textContent = (p.blocks||0)+" 块";
+  $("queue").textContent = p.queue||0;
+  $("i_dev").textContent = p.in_dev||"-";
+  $("o_dev").textContent = p.out_dev||"-";
+  $("lv_in").style.width = Math.min(100,(p.in||0)*420)+"%";
+  $("lv_out").style.width = Math.min(100,(p.out||0)*420)+"%";
+  const el = $("errline");
+  if(p.phase==="error"){ el.style.display="block"; el.textContent=p.msg; } else { el.style.display="none"; }
+  if(p.msg && p.phase==="loading") $("dev_note").textContent = p.msg;
+}
+
+["in_dev","out_dev"].forEach(id=>{
+  $(id).addEventListener("change", e=>{
+    state.cfg[id==="in_dev"?"in_spec":"out_spec"] = e.target.value;
+  });
+});
+$("block").oninput = e=>{ state.cfg.block=parseFloat(e.target.value); $("block_v").textContent=state.cfg.block.toFixed(2)+" s"; };
+$("ctx").oninput   = e=>{ state.cfg.ctx=parseFloat(e.target.value);   $("ctx_v").textContent=state.cfg.ctx.toFixed(2)+" s"; };
+$("gain").oninput  = e=>{ state.cfg.gain=parseFloat(e.target.value);  $("gain_v").textContent=state.cfg.gain.toFixed(2)+"×";
+                          send({cmd:"set",key:"gain",value:state.cfg.gain}); };
+document.querySelectorAll("#ep_row .chip").forEach(b=>b.onclick=()=>{
+  state.cfg.ep=b.dataset.ep;
+  document.querySelectorAll("#ep_row .chip").forEach(x=>x.classList.toggle("active",x===b));
+});
+document.querySelectorAll("[data-f0]").forEach(b=>b.onclick=()=>{
+  state.cfg.f0=b.dataset.f0;
+  document.querySelectorAll("[data-f0]").forEach(x=>x.classList.toggle("active",x===b));
+});
+$("q_refresh").onclick = loadDevices;
+$("q_mon").onclick = ()=>{ $("out_dev").value=""; state.cfg.out_spec=""; };
+$("q_obs").onclick = ()=>{ const c=findCable(); if(c){ $("out_dev").value=c; state.cfg.out_spec=c; }
+  else alert("没找到 CABLE Input。先装 VB-Audio Virtual Cable 并重启。"); };
+$("toggle").onclick = ()=>{
+  if(state.running || state.phase==="loading") send({cmd:"stop"});
+  else send({cmd:"start", cfg:state.cfg});
+};
+document.querySelector('#ep_row .chip[data-ep="dml0"]').classList.add("active");
+document.querySelector('[data-f0="pm"]').classList.add("active");
+connect();
+</script>
+</body>
+</html>
