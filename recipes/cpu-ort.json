@@ -1,0 +1,22 @@
+{
+  "id": "cpu-ort",
+  "label": "保底档 · CPU/ONNX（约 200MB，能跑偏慢）",
+  "backend": "ort-cpu",
+  "desc": "没有独显时的兜底。延迟偏高（0.5~1s），但保证能出声。",
+  "requirements": { "tier": ["low", "mid", "high"], "platform": ["win", "linux", "darwin"] },
+  "deps": { "profile": "ort-cpu" },
+  "model": { "file": "assets/weights/julesbrown.pth", "url": "", "sha256": "" },
+  "index": { "file": "assets/indices/julesbrown.index", "url": "", "sha256": "" },
+  "f0_model": { "file": "assets/rmvpe/rmvpe.pt", "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt", "sha256": "" },
+  "params": {
+    "threhold": -60.0,
+    "pitch": 12.0,
+    "formant": -1.75,
+    "rms_mix_rate": 0.7,
+    "index_rate": 0.0,
+    "block_time": 0.25,
+    "crossfade_length": 0.04,
+    "extra_time": 0.5,
+    "f0method": "pm"
+  }
+}

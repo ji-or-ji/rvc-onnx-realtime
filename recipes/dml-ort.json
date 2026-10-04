@@ -1,0 +1,22 @@
+{
+  "id": "dml-ort",
+  "label": "普及档 · DirectML/ONNX（轻，约 300MB）",
+  "backend": "ort-dml",
+  "desc": "AMD / Intel 显卡走 DirectML。引擎为自研 ONNX 版，参数是子集（rmvpe、index 检索待补）。",
+  "requirements": { "tier": ["mid", "high"], "platform": ["win"] },
+  "deps": { "profile": "ort-dml" },
+  "model": { "file": "assets/weights/julesbrown.pth", "url": "", "sha256": "" },
+  "index": { "file": "assets/indices/julesbrown.index", "url": "", "sha256": "" },
+  "f0_model": { "file": "assets/rmvpe/rmvpe.pt", "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt", "sha256": "" },
+  "params": {
+    "threhold": -60.0,
+    "pitch": 12.0,
+    "formant": -1.75,
+    "rms_mix_rate": 0.7,
+    "index_rate": 0.0,
+    "block_time": 0.15,
+    "crossfade_length": 0.04,
+    "extra_time": 1.0,
+    "f0method": "pm"
+  }
+}

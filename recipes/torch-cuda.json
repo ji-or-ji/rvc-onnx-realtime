@@ -1,0 +1,22 @@
+{
+  "id": "torch-cuda",
+  "label": "高档 · torch-CUDA（参数最全、跟随最快）",
+  "backend": "torch-cuda",
+  "desc": "复用 RVC 原生引擎（含 rmvpe、index 检索、降噪）。需要 NVIDIA 显卡 + 约 3GB 依赖。",
+  "requirements": { "tier": ["high"], "min_vram_mb": 4096, "platform": ["win", "linux"] },
+  "deps": { "profile": "torch-cuda" },
+  "model": { "file": "assets/weights/julesbrown.pth", "url": "", "sha256": "" },
+  "index": { "file": "assets/indices/julesbrown.index", "url": "", "sha256": "" },
+  "f0_model": { "file": "assets/rmvpe/rmvpe.pt", "url": "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.pt", "sha256": "" },
+  "params": {
+    "threhold": -60.0,
+    "pitch": 12.0,
+    "formant": -1.75,
+    "rms_mix_rate": 0.7,
+    "index_rate": 0.28,
+    "block_time": 0.06,
+    "crossfade_length": 0.04,
+    "extra_time": 2.0,
+    "f0method": "rmvpe"
+  }
+}
