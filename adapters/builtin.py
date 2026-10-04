@@ -5,9 +5,16 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
+import subprocess
+import sys
+import time
 import urllib.request
 
 from .base import CONTRACT_FIELDS, Adapter
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class BuiltinAdapter(Adapter):
@@ -15,9 +22,12 @@ class BuiltinAdapter(Adapter):
     label = "内置（原版 realtime_gui）"
     verified = "RVC WebUI 2.3 + 我们的 control_server"
     notes = "需先启动 启动.bat（引擎进程自带控制接口）"
+    stop_note = "真停止变声（引擎窗口仍驻留，随时可再开始）"
+    can_start = True
 
     def __init__(self, host="127.0.0.1", port=8898, token=""):
         self.base = "http://%s:%d" % (host, port)
+        self.port = port
         self.token = token
 
     # ---------- 内部 ----------
@@ -62,3 +72,24 @@ class BuiltinAdapter(Adapter):
 
     def stop(self):
         return self._req("/api/stop", {})
+
+    def start_engine(self):
+        """替用户把内置引擎拉起来：起 realtime_gui.py，再等控制接口就绪才回报。
+
+        注意：起的是同一套 venv（sys.executable），工作目录放在项目根。
+        """
+        if self.available()[0]:
+            return {"ok": True, "note": "引擎已在运行"}
+        try:
+            subprocess.Popen([sys.executable, "realtime_gui.py"], cwd=ROOT)
+        except Exception as e:
+            return {"ok": False, "note": "拉起进程失败：%s" % e}
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            time.sleep(1.5)
+            try:
+                with socket.create_connection(("127.0.0.1", self.port), timeout=1):
+                    return {"ok": True, "note": "引擎已启动，控制接口就绪"}
+            except Exception:
+                pass
+        return {"ok": False, "note": "已拉起进程，但 40 秒内接口未就绪（去看引擎窗口的报错）"}

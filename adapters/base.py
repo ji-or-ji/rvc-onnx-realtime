@@ -23,6 +23,8 @@ class Adapter:
     label = ""          # 给人看的名字
     verified = ""       # 已验证的对方版本（私有协议必填）
     notes = ""          # 已知脆弱点 / 使用前提
+    stop_note = ""      # 「停止」在本引擎里到底意味着什么（会显示在界面上）
+    can_start = False   # 管理台能否替它把引擎拉起来
 
     def available(self):
         """-> (bool, 原因)。探测对方是否就绪；异常一律在这里吞掉并变成原因。"""
@@ -37,8 +39,12 @@ class Adapter:
         raise NotImplementedError
 
     def stop(self):
-        """-> dict。停止变声，但不退出对方程序。"""
+        """-> dict。停止变声（含义因引擎而异，见 stop_note）。"""
         raise NotImplementedError
+
+    def start_engine(self):
+        """-> dict。替用户把引擎拉起来（做不到就说明原因，不要假装）。"""
+        return {"ok": False, "note": "该引擎需自行启动（管理台不会替它拉起）"}
 
     # 给管理台用的一行摘要
     def info(self):
@@ -47,4 +53,6 @@ class Adapter:
         except Exception as e:                      # 适配器再烂也不该把上层搞崩
             ok, why = False, "探测失败：%s" % e
         return {"id": self.id, "label": self.label, "verified": self.verified,
-                "notes": self.notes, "available": bool(ok), "reason": why}
+                "notes": self.notes, "stop_note": self.stop_note,
+                "can_start": bool(self.can_start),
+                "available": bool(ok), "reason": why}

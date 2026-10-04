@@ -166,6 +166,10 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
         <div class="sel"><span class="lb">当前管理的引擎</span><select id="engine_sel"></select></div>
       </div>
       <p class="hint" id="engine_note" style="max-width:none;margin-top:.7rem"></p>
+      <div class="actions" style="margin-top:.9rem">
+        <button class="tb" id="engine_start" style="display:none">启动引擎</button>
+        <span class="hint" id="engine_start_msg" style="margin:0"></span>
+      </div>
     </div>
   </section>
 
@@ -269,6 +273,8 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
         <button id="stop">停止</button>
         <div class="status"><span class="sq" id="dot"></span><span id="st">读取中</span></div>
       </div>
+      <p class="hint" id="stop_note" style="max-width:none;margin-top:.8rem"></p>
+      <p class="hint" id="sync" style="max-width:none"></p>
     </div>
   </section>
 
@@ -409,6 +415,14 @@ function renderEngines(){
   $("engine_note").textContent =
     (cur.available ? "✓ 就绪：" + (cur.reason || "") : "✗ 未就绪：" + (cur.reason || "")) +
     "　· 已验证：" + (cur.verified || "—") + (cur.notes ? "　· " + cur.notes : "");
+  $("stop_note").textContent = "本引擎的「停止」意味：" + (cur.stop_note || "—");
+  const canStart = !cur.available && cur.can_start;
+  $("engine_start").style.display = canStart ? "" : "none";
+  if (!cur.available && !cur.can_start) {
+    $("engine_start_msg").textContent = "（本引擎需自行启动）";
+  } else if (cur.available) {
+    $("engine_start_msg").textContent = "";
+  }
 }
 async function loadEngines(){
   try{
@@ -426,6 +440,39 @@ $("engine_sel").onchange = async () => {
   await load();
 };
 
+$("engine_start").onclick = async () => {
+  $("engine_start_msg").textContent = "正在拉起引擎（最多等 40 秒）…";
+  const r = await api('/api/engine/start', {method:'POST', headers:{'Content-Type':'application/json'},
+                                            body: JSON.stringify({engine: ENGINE})});
+  const j = await r.json();
+  $("engine_start_msg").textContent = (j.ok ? "✓ " : "✗ ") + (j.note || "");
+  await loadEngines();
+  await load();
+};
+
+/* ── “上次的值”：引擎未就绪时拿来显示，并标注未同步 ── */
+function cacheKey(){ return "rvc-last-" + ENGINE; }
+function saveLast(s){
+  try{
+    const o = {params:{}, f0method:s.f0method};
+    NUM.forEach(k => { if (s[k] !== undefined && s[k] !== null) o.params[k] = s[k]; });
+    localStorage.setItem(cacheKey(), JSON.stringify(o));
+  }catch(e){}
+}
+function restoreLast(){
+  try{
+    const o = JSON.parse(localStorage.getItem(cacheKey()) || "null");
+    if (!o) return false;
+    NUM.forEach(k => {
+      if (o.params && o.params[k] !== undefined) {
+        $(k).value = o.params[k]; $(k + "_r").value = o.params[k];
+      }
+    });
+    if (o.f0method) $("f0method").value = o.f0method;
+    return true;
+  }catch(e){ return false; }
+}
+
 /* ── 读取 / 下发 ── */
 async function load(){
   try{
@@ -433,11 +480,14 @@ async function load(){
     if (s && s.available === false) {
       $("dot").className = "sq";
       $("st").textContent = s.reason || "该引擎未就绪";
+      $("sync").textContent = restoreLast() ? "未同步（显示上次的值）" : "";
       return;
     }
     NUM.forEach(k => {
       const n = $(k), r = $(k + "_r");
-      if (s[k] !== null && s[k] !== undefined && n && r) { n.value = s[k]; r.value = s[k]; }
+      if (s[k] !== null && s[k] !== undefined && s[k] !== "" && n && r) {
+        n.value = s[k]; r.value = s[k];
+      }
     });
     if(s.f0method) $("f0method").value = s.f0method;
     if(!$("sg_hostapi").dataset.filled){
@@ -451,6 +501,8 @@ async function load(){
     const on = !!s.streaming;
     $("dot").className = "sq" + (on ? " on" : "");
     $("st").textContent = on ? "运行中" : "已停止";
+    $("sync").textContent = "";
+    saveLast(s);
   }catch(e){
     $("st").textContent = "未连接";
   }

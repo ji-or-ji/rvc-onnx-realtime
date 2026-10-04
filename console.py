@@ -8,7 +8,8 @@
   GET  /api/state         当前引擎状态（?engine=xxx）
   GET  /api/devices       设备清单（?engine=xxx，由适配器给）
   POST /api/apply         下发参数/模型/设备（body 里带 engine）
-  POST /api/stop          停止变声
+  POST /api/stop          停止变声（各引擎含义不同，见 /api/engines 的 stop_note）
+  POST /api/engine/start  让管理台把引擎拉起来（能启动的引擎才支持）
   GET/POST/DELETE /api/models | /api/presets    管理台自有数据
   POST /api/upload        上传模型 / 索引文件（按扩展名归位）
 
@@ -249,6 +250,11 @@ class _H(BaseHTTPRequestHandler):
                 ps.append({"name": name, **body})
                 _write_json(PRESETS_FILE, "presets", ps)
                 self._send(200, json.dumps(presets_payload(), ensure_ascii=False))
+            elif self.path.startswith("/api/engine/start"):
+                a = pick(str(payload.get("engine") or ""))
+                if not a:
+                    self._send(404, json.dumps({"error": "没有这个引擎"}, ensure_ascii=False)); return
+                self._send(200, json.dumps(a.start_engine(), ensure_ascii=False))
             elif self.path.startswith("/api/apply"):
                 a = pick(str(payload.get("engine") or ""))
                 if not a:
