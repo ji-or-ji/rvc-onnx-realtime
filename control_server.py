@@ -124,20 +124,31 @@ class _H(BaseHTTPRequestHandler):
         pass
 
 
-def _lan_ip():
-    """取本机在局域网里的 IPv4（拿不到就回退 127.0.0.1）。"""
+def _lan_ips():
+    """本机局域网候选地址（192.168 优先，过滤 127/169.254）。
+
+    机器上常有 Radmin VPN / Hyper-V / WSL 等虚拟网卡，单取一个很容易取错，
+    所以这里返回全部候选，启动日志照着打印，手机挑能连的那个。
+    """
     import socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    ips = []
     try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            if ip.startswith("127.") or ip.startswith("169.254."):
+                continue
+            ips.append(ip)
     except Exception:
-        return "127.0.0.1"
-    finally:
+        pass
+    if not ips:
         try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ips = [s.getsockname()[0]]
             s.close()
         except Exception:
-            pass
+            ips = ["127.0.0.1"]
+    ips.sort(key=lambda x: (not x.startswith("192.168."), x))
+    return ips
 
 
 def start(gui, port=PORT, host="0.0.0.0"):
@@ -152,5 +163,7 @@ def start(gui, port=PORT, host="0.0.0.0"):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     print("[遥控] 本机   http://127.0.0.1:%d" % port, flush=True)
     if host not in ("127.0.0.1", "localhost"):
-        print("[遥控] 局域网 http://%s:%d   （手机同网可开）" % (_lan_ip(), port), flush=True)
+        for ip in _lan_ips()[:3]:
+            print("[遥控] 局域网 http://%s:%d" % (ip, port), flush=True)
+        print("[遥控] （手机连同一个 Wi-Fi，用上面能打开的那个地址）", flush=True)
     return srv
