@@ -1,0 +1,13 @@
+# 访问令牌（含密钥，绝不入库）
+control_token.txt
+
+# 运行时产物
+runtime/
+__pycache__/
+*.pyc
+*.part
+
+# 本地临时文件
+_*.log
+_*.err
+_*.tmp
