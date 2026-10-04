@@ -224,8 +224,10 @@ class Boot:
         profile = recipe["deps"]["profile"]
         spec = PROFILES[profile]
         ok, why = self.env_health(self.env, profile)
-        if ok and self.state.get("deps") == profile:
-            log("依赖已就绪（%s）" % spec["desc"])
+        if ok:
+            # 能用就不装：防止把已有的 cu118 torch 换成 cu128，白下 2.5GB
+            log("依赖已满足（%s），跳过安装" % spec["desc"])
+            self.save_state(deps=profile)
             return
         if self.a.dry_run:
             log("（dry-run）将安装：%s" % spec["desc"])
