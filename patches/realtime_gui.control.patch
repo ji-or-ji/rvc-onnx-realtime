@@ -1,0 +1,91 @@
+diff --git "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py.bak-preset" "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py"
+index bf3e40a..cb32542 100644
+--- "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py.bak-preset"
++++ "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py"
+@@ -410,8 +410,14 @@ if __name__ == "__main__":
+                     sg.Text("0", key="infer_time"),
+                 ],
+             ]
+             self.window = sg.Window("RVC - GUI", layout=layout, finalize=True)
++            # 装遥控手：窗口已存在，故 write_event_value 可用；音频/推理一行未改。
++            try:
++                import control_server
++                control_server.start(self)
++            except Exception as _e:
++                printt("控制接口启动失败（不影响原界面）：%s", _e)
+             self.event_handler()
+ 
+         def event_handler(self):
+             global flag_vc
+@@ -460,8 +466,9 @@ if __name__ == "__main__":
+                                 ].index(True)
+                             ],
+                             "threhold": values["threhold"],
+                             "pitch": values["pitch"],
++                            "formant": values["formant"],
+                             "rms_mix_rate": values["rms_mix_rate"],
+                             "index_rate": values["index_rate"],
+                             # "device_latency": values["device_latency"],
+                             "block_time": values["block_time"],
+@@ -517,11 +524,60 @@ if __name__ == "__main__":
+                 elif event == "O_noise_reduce":
+                     self.gui_config.O_noise_reduce = values["O_noise_reduce"]
+                 elif event in ["vc", "im"]:
+                     self.function = event
+-                elif event == "stop_vc" or event != "start_vc":
++                elif event not in ("-CTRL-APPLY", "-CTRL-STOP") and (
++                    event == "stop_vc" or event != "start_vc"
++                ):
+                     # Other parameters do not support hot update
+                     self.stop_stream()
++                elif event == "-CTRL-APPLY":
++                  try:
++                    # 遥控下发：构造原版 set_values 需要的完整 values，其余键回退到当前值
++                    p = values or {}
++                    g = self.gui_config
++                    gap = lambda n, d=None: getattr(g, n, d)
++                    _f0 = p.get("f0method", gap("f0method", "rmvpe"))
++                    vals = {
++                        "pth_path": p.get("pth_path", gap("pth_path", "")),
++                        "index_path": p.get("index_path", gap("index_path", "")),
++                        "sg_hostapi": p.get("sg_hostapi", gap("sg_hostapi", "")),
++                        "sg_wasapi_exclusive": p.get("sg_wasapi_exclusive",
++                                                     gap("wasapi_exclusive", False)),
++                        "sg_input_device": p.get("sg_input_device", gap("sg_input_device", "")),
++                        "sg_output_device": p.get("sg_output_device", gap("sg_output_device", "")),
++                        "sr_model": p.get("sr_type", gap("sr_type", "sr_model")) == "sr_model",
++                        "sr_device": p.get("sr_type", gap("sr_type", "sr_model")) == "sr_device",
++                        "threhold": float(p.get("threhold", gap("threhold", -60))),
++                        "pitch": float(p.get("pitch", gap("pitch", 0))),
++                        "formant": float(p.get("formant", gap("formant", 0.0))),
++                        "block_time": float(p.get("block_time", gap("block_time", 0.25))),
++                        "crossfade_length": float(p.get("crossfade_length",
++                                                       gap("crossfade_time", 0.05))),
++                        "extra_time": float(p.get("extra_time", gap("extra_time", 2.5))),
++                        "I_noise_reduce": bool(p.get("I_noise_reduce", gap("I_noise_reduce", False))),
++                        "O_noise_reduce": bool(p.get("O_noise_reduce", gap("O_noise_reduce", False))),
++                        "rms_mix_rate": float(p.get("rms_mix_rate", gap("rms_mix_rate", 0.0))),
++                        "index_rate": float(p.get("index_rate", gap("index_rate", 0.0))),
++                        "pm": _f0 == "pm", "rmvpe": _f0 == "rmvpe", "fcpe": _f0 == "fcpe",
++                    }
++                    if self.set_values(vals):
++                        for _k, _v in vals.items():
++                            try:
++                                self.window[_k].Update(value=_v)
++                            except Exception:
++                                pass
++                        printt("遥控：参数已应用，重新开始")
++                        self.start_vc()
++                  except Exception as _e:
++                    import traceback
++                    traceback.print_exc()
++                    printt("遥控应用失败（已忽略，不影响原界面）：%s", _e)
++                elif event == "-CTRL-STOP":
++                  try:
++                    self.stop_stream()
++                  except Exception:
++                    pass
+ 
+         def set_values(self, values):
+             if len(values["pth_path"].strip()) == 0:
+                 sg.popup(i18n("请选择pth文件"))
