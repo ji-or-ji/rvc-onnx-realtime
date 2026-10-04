@@ -51,6 +51,10 @@ class BuiltinAdapter(Adapter):
             "model": {"pth": s.get("pth_path"), "index": s.get("index_path")},
         }
 
+    def devices(self):
+        # 设备清单由引擎侧提供（它进程里才能枚举到真实设备）
+        return self._req("/api/devices")
+
     def apply(self, payload):
         # 内置引擎的接口本来就是契约字段名，直通即可
         body = {k: v for k, v in (payload or {}).items() if k in CONTRACT_FIELDS}
