@@ -217,6 +217,25 @@ footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
 <script>
 const $ = id => document.getElementById(id);
 
+/* ── 访问令牌：地址带 ?k= 打开一次，之后记在本机浏览器 ── */
+const qs = new URLSearchParams(location.search);
+let TOKEN = qs.get("k") || localStorage.getItem("rvc-k") || "";
+if (qs.get("k")) {
+  localStorage.setItem("rvc-k", TOKEN);
+  history.replaceState(null, "", location.pathname);
+}
+function askToken(){
+  const t = prompt("请输入访问令牌（启动窗口里 ?k= 后面那一串）", TOKEN);
+  if (t) { TOKEN = t.trim(); localStorage.setItem("rvc-k", TOKEN); load(); }
+}
+async function api(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({ "X-Token": TOKEN }, opts.headers || {});
+  const r = await fetch(path, opts);
+  if (r.status === 401) { askToken(); throw new Error("401 未授权"); }
+  return r;
+}
+
 /* ── 参数定义：[键, 标签, 最小, 最大, 步长] ── */
 const P2 = [["threhold","响应阈值 / dB",-80,-20,1],
             ["pitch","音调 / 半音",-24,24,1],
@@ -296,14 +315,14 @@ $("hostaddr").textContent = location.host;
 /* ── 读取 / 下发 ── */
 async function load(){
   try{
-    const s = await (await fetch('/api/state')).json();
+    const s = await (await api('/api/state')).json();
     NUM.forEach(k => {
       const n = $(k), r = $(k + "_r");
       if (s[k] !== null && s[k] !== undefined && n && r) { n.value = s[k]; r.value = s[k]; }
     });
     if(s.f0method) $("f0method").value = s.f0method;
     if(!$("sg_hostapi").dataset.filled){
-      const dv = await (await fetch('/api/devices')).json();
+      const dv = await (await api('/api/devices')).json();
       const apis = [...new Set(dv.devices.map(d => d.api))];
       $("sg_hostapi").innerHTML = apis.map(a => `<option>${a}</option>`).join("");
       fill("sg_input_device",  dv.devices.filter(d => d.io.includes("in")),  s.sg_input_device);
@@ -329,12 +348,12 @@ $("apply").onclick = async () => {
                  f0method: $("f0method").value };
   NUM.forEach(k => body[k] = parseFloat($(k).value));
   $("st").textContent = "已下发";
-  await fetch('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
-                             body: JSON.stringify(body)});
+  await api('/api/apply', {method:'POST', headers:{'Content-Type':'application/json'},
+                           body: JSON.stringify(body)});
   setTimeout(load, 2000);
 };
 $("stop").onclick = async () => {
-  await fetch('/api/stop', {method:'POST'});
+  await api('/api/stop', {method:'POST'});
   setTimeout(load, 800);
 };
 load();
