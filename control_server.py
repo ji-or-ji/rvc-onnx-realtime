@@ -124,11 +124,33 @@ class _H(BaseHTTPRequestHandler):
         pass
 
 
-def start(gui, port=PORT, host="127.0.0.1"):
-    """在原版进程内启动控制接口（守护线程）。"""
+def _lan_ip():
+    """取本机在局域网里的 IPv4（拿不到就回退 127.0.0.1）。"""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def start(gui, port=PORT, host="0.0.0.0"):
+    """在原版进程内启动控制接口（守护线程）。
+
+    host 默认 0.0.0.0：手机/平板在同一局域网都能开（首次会弹一次 Windows 防火墙询问）。
+    注意：局域网上没有鉴权，谁能访问这个端口谁就能改参数。想只给本机，传 host="127.0.0.1"。
+    """
     global GUI, PORT
     GUI, PORT = gui, port
     srv = ThreadingHTTPServer((host, port), _H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    print("[遥控] 面板已就绪：http://%s:%d" % (host, port), flush=True)
+    print("[遥控] 本机   http://127.0.0.1:%d" % port, flush=True)
+    if host not in ("127.0.0.1", "localhost"):
+        print("[遥控] 局域网 http://%s:%d   （手机同网可开）" % (_lan_ip(), port), flush=True)
     return srv

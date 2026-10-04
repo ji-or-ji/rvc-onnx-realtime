@@ -2,24 +2,39 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>RVC · 实时变声控制台</title>
 <style>
-:root{--ink:#111;--paper:#F2EFE9;--red:#DA291C}
+/* ── 配色：模式 × 主题，全部走变量 ── */
+:root{
+  --paper:#F2EFE9; --ink:#111111; --accent:#DA291C; --on-accent:#FFFFFF; --muted:#6B6B6B;
+}
+html[data-mode="dark"]{
+  --paper:#0E0E0E; --ink:#F2EFE9; --accent:#DA291C; --on-accent:#FFFFFF; --muted:#9A9A9A;
+}
+html[data-theme="blue"]{--accent:#1D4ED8}
+html[data-theme="green"]{--accent:#1F6F4A}
+html[data-theme="amber"]{--accent:#B45309}
+html[data-theme="violet"]{--accent:#5B21B6}
+html[data-theme="mono"]{--accent:#111111}
+html[data-mode="dark"][data-theme="mono"]{--accent:#F2EFE9;--on-accent:#111111}
+
 *{margin:0;padding:0;box-sizing:border-box}
 body{
   background:var(--paper);color:var(--ink);
   font-family:"Inter","Neue Haas Grotesk","Helvetica Neue",Helvetica,Arial,"Noto Sans SC",sans-serif;
   font-weight:400;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;
-  padding:40px 36px 72px;
+  padding:40px 36px 64px;
+  transition:background .15s linear,color .15s linear;
 }
 .wrap{max-width:1200px;margin:0 auto}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);column-gap:22px;row-gap:10px}
 
 /* ── 报头 ── */
-.masthead{border-bottom:2px solid var(--ink);padding-bottom:24px}
-.kicker{font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--red)}
-h1{margin-top:12px;font-size:clamp(40px,7vw,94px);font-weight:700;line-height:.92;letter-spacing:-.025em}
+.masthead{border-bottom:2px solid var(--ink);padding-bottom:22px}
+.kicker{font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
+h1{margin-top:12px;font-size:clamp(38px,7vw,92px);font-weight:700;line-height:.92;letter-spacing:-.025em}
 .meta{font-size:10px;line-height:2;letter-spacing:.09em;text-transform:uppercase}
 .meta b{font-weight:700}
 
@@ -27,16 +42,31 @@ h1{margin-top:12px;font-size:clamp(40px,7vw,94px);font-weight:700;line-height:.9
 .sec{border-top:1px solid var(--ink);padding-top:14px;margin-top:44px}
 .num{font-size:11px;font-weight:700;letter-spacing:.1em}
 h2{font-size:15px;font-weight:700;letter-spacing:.02em;margin-top:3px}
-.hint{font-size:11px;line-height:1.7;margin-top:9px;max-width:24ch}
-.fields{display:grid;grid-template-columns:repeat(3,1fr);column-gap:22px;row-gap:26px}
-.lb{display:block;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:1px}
-input,select{
+.hint{font-size:11px;line-height:1.7;margin-top:9px;max-width:26ch;color:var(--muted)}
+.fields{display:grid;grid-template-columns:repeat(3,1fr);column-gap:22px;row-gap:22px}
+
+/* ── 控件 ── */
+.lb{display:block;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:3px}
+select,input:not([type=range]){
   display:block;width:100%;background:transparent;border:0;border-bottom:1px solid var(--ink);
   border-radius:0;color:var(--ink);font-family:inherit;padding:5px 0 6px;
-  font-size:20px;font-weight:700;letter-spacing:-.01em;appearance:none;outline:none;
+  font-size:18px;font-weight:700;letter-spacing:-.01em;appearance:none;outline:none;
 }
 select{font-size:15px}
-input:focus,select:focus{border-bottom-color:var(--red)}
+select:focus,input:not([type=range]):focus{border-bottom-color:var(--accent)}
+.ctl{display:flex;align-items:center;gap:14px}
+.ctl input[type=number]{width:84px;flex:0 0 auto;text-align:left;padding-left:0}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;flex:1 1 auto;width:100%;height:26px;
+  background:transparent;border:0;outline:none;cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--ink)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;background:var(--accent);
+  border:0;border-radius:0;margin-top:-6px;
+}
+input[type=range]::-moz-range-track{height:1px;background:var(--ink)}
+input[type=range]::-moz-range-thumb{width:13px;height:13px;background:var(--accent);border:0;border-radius:0}
 
 /* ── 操作 ── */
 .actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
@@ -45,21 +75,45 @@ button{
   padding:15px 24px;border:1px solid var(--ink);background:transparent;color:var(--ink);
   border-radius:0;cursor:pointer;
 }
-button.primary{background:var(--red);border-color:var(--red);color:#fff}
-button.primary:active{background:var(--ink);border-color:var(--ink)}
+button:active{background:var(--ink);color:var(--paper)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button.primary:active{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+button.on{background:var(--ink);color:var(--paper)}
 .status{margin-left:auto;display:flex;align-items:center;gap:9px;
   font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
 .sq{width:10px;height:10px;background:var(--ink);display:inline-block}
-.sq.on{background:var(--red)}
+.sq.on{background:var(--accent)}
 
-footer{border-top:1px solid var(--ink);margin-top:56px;padding-top:12px;
-  font-size:10px;letter-spacing:.08em;text-transform:uppercase;
-  display:flex;justify-content:space-between;gap:20px}
+/* ── 外观 ✕ 主题 ── */
+.picks{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.sw{width:30px;height:30px;border:1px solid var(--ink);background:var(--sw);cursor:pointer;border-radius:0}
+.sw.on{outline:2px solid var(--ink);outline-offset:2px}
+.sep{width:1px;height:26px;background:var(--ink);margin:0 4px}
+.tb{padding:10px 13px;font-size:10px}
 
-@media(max-width:880px){
-  body{padding:26px 20px 56px}
+footer{border-top:1px solid var(--ink);margin-top:52px;padding-top:12px;
+  font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
+
+/* ── 手机端 ── */
+@media(max-width:900px){
   .fields{grid-template-columns:repeat(2,1fr)}
-  .sec .num,.sec h2,.sec .hint{grid-column:1/13}
+}
+@media(max-width:640px){
+  body{padding:22px 16px 46px}
+  h1{font-size:clamp(34px,11vw,52px)}
+  .grid{column-gap:16px}
+  .fields{grid-template-columns:1fr;row-gap:20px}
+  .sec .head{grid-column:1/13}
+  .body{grid-column:1/13}
+  .hint{max-width:none}
+  input[type=range]{height:34px}
+  input[type=range]::-webkit-slider-thumb{width:17px;height:17px;margin-top:-8px}
+  select,input:not([type=range]){font-size:16px}
+  .actions{gap:10px}
+  .actions button{flex:1 1 auto;padding:17px 14px}
+  .status{margin-left:0;width:100%;justify-content:flex-start}
+  .meta{font-size:9.5px}
 }
 </style>
 </head>
@@ -67,24 +121,24 @@ footer{border-top:1px solid var(--ink);margin-top:56px;padding-top:12px;
 <div class="wrap">
 
   <header class="grid masthead">
-    <div style="grid-column:1/9">
+    <div style="grid-column:1/8">
       <div class="kicker">RVC · Remote Control</div>
       <h1>实时变声<br>控制台</h1>
     </div>
-    <div class="meta" style="grid-column:10/13">
+    <div class="meta" style="grid-column:9/13">
       <div>引擎 <b>原版 realtime_gui</b></div>
-      <div>接口 <b>127.0.0.1:8898</b></div>
-      <div>2026 · 本地</div>
+      <div>地址 <b id="hostaddr">—</b></div>
+      <div>2026 · 局域网遥控</div>
     </div>
   </header>
 
   <section class="grid sec">
-    <div style="grid-column:1/4">
+    <div class="head" style="grid-column:1/4">
       <div class="num">01</div>
       <h2>音频设备</h2>
       <p class="hint">宿主 API 与输入／输出端点。改动后需重新开始才生效。</p>
     </div>
-    <div class="fields" style="grid-column:4/13">
+    <div class="fields body" style="grid-column:4/13">
       <label><span class="lb">设备类型</span><select id="sg_hostapi"></select></label>
       <label><span class="lb">输入</span><select id="sg_input_device"></select></label>
       <label><span class="lb">输出</span><select id="sg_output_device"></select></label>
@@ -92,42 +146,30 @@ footer{border-top:1px solid var(--ink);margin-top:56px;padding-top:12px;
   </section>
 
   <section class="grid sec">
-    <div style="grid-column:1/4">
+    <div class="head" style="grid-column:1/4">
       <div class="num">02</div>
       <h2>声音参数</h2>
-      <p class="hint">音调、声线、检索与响度。</p>
+      <p class="hint">音调、声线、检索与响度。拖动即时改值，点「应用」才下发。</p>
     </div>
-    <div class="fields" style="grid-column:4/13">
-      <label><span class="lb">响应阈值 / dB</span><input id="threhold" type="number" step="1"></label>
-      <label><span class="lb">音调 / 半音</span><input id="pitch" type="number" step="1"></label>
-      <label><span class="lb">性别因子</span><input id="formant" type="number" step="0.05"></label>
-      <label><span class="lb">检索特征占比</span><input id="index_rate" type="number" step="0.01"></label>
-      <label><span class="lb">响度因子</span><input id="rms_mix_rate" type="number" step="0.01"></label>
-      <label><span class="lb">f0 算法</span><select id="f0method">
-        <option>rmvpe</option><option>pm</option><option>fcpe</option></select></label>
-    </div>
+    <div class="fields body" style="grid-column:4/13" id="f2"></div>
   </section>
 
   <section class="grid sec">
-    <div style="grid-column:1/4">
+    <div class="head" style="grid-column:1/4">
       <div class="num">03</div>
       <h2>引擎节奏</h2>
-      <p class="hint">采样长度决定延迟；额外推理时长决定上下文与算力消耗。</p>
+      <p class="hint">采样长度决定延迟；额外推理时长决定上下文与算力。</p>
     </div>
-    <div class="fields" style="grid-column:4/13">
-      <label><span class="lb">采样长度 / 秒</span><input id="block_time" type="number" step="0.01"></label>
-      <label><span class="lb">淡入淡出 / 秒</span><input id="crossfade_length" type="number" step="0.01"></label>
-      <label><span class="lb">额外推理时长 / 秒</span><input id="extra_time" type="number" step="0.5"></label>
-    </div>
+    <div class="fields body" style="grid-column:4/13" id="f3"></div>
   </section>
 
   <section class="grid sec">
-    <div style="grid-column:1/4">
+    <div class="head" style="grid-column:1/4">
       <div class="num">04</div>
       <h2>运行</h2>
       <p class="hint">应用后立即重新开始，相当于在原界面按一次「开始」。</p>
     </div>
-    <div style="grid-column:4/13">
+    <div class="body" style="grid-column:4/13">
       <div class="actions">
         <button class="primary" id="apply">应用并开始</button>
         <button id="stop">停止</button>
@@ -136,21 +178,99 @@ footer{border-top:1px solid var(--ink);margin-top:56px;padding-top:12px;
     </div>
   </section>
 
+  <section class="grid sec">
+    <div class="head" style="grid-column:1/4">
+      <div class="num">05</div>
+      <h2>外观</h2>
+      <p class="hint">配色与明暗。设置存在本机浏览器里。</p>
+    </div>
+    <div class="body" style="grid-column:4/13">
+      <div class="picks" id="modes"></div>
+      <div class="picks" style="margin-top:14px" id="themes"></div>
+    </div>
+  </section>
+
   <footer>
     <span>RVC · Realtime Voice Conversion</span>
-    <span>2026 · 本地遥控面板</span>
+    <span>2026 · 局域网遥控面板</span>
   </footer>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
-const NUM = ["threhold","pitch","formant","index_rate","rms_mix_rate",
-             "block_time","crossfade_length","extra_time"];
 
+/* ── 参数定义：[键, 标签, 最小, 最大, 步长] ── */
+const P2 = [["threhold","响应阈值 / dB",-80,-20,1],
+            ["pitch","音调 / 半音",-24,24,1],
+            ["formant","性别因子",-5,5,0.05],
+            ["index_rate","检索特征占比",0,1,0.01],
+            ["rms_mix_rate","响度因子",0,1,0.01]];
+const P3 = [["block_time","采样长度 / 秒",0.03,0.5,0.01],
+            ["crossfade_length","淡入淡出 / 秒",0,0.2,0.01],
+            ["extra_time","额外推理时长 / 秒",0,3,0.1]];
+const NUM = P2.concat(P3).map(p => p[0]);
+
+function buildField(host, def){
+  const [key, label, lo, hi, st] = def;
+  const d = document.createElement("div");
+  d.innerHTML =
+    `<span class="lb">${label}</span>
+     <div class="ctl">
+       <input type="range" id="${key}_r" min="${lo}" max="${hi}" step="${st}">
+       <input type="number" id="${key}" min="${lo}" max="${hi}" step="${st}">
+     </div>`;
+  host.appendChild(d);
+  const r = d.querySelector(`#${key}_r`), n = d.querySelector(`#${key}`);
+  r.addEventListener("input", () => { n.value = r.value; });
+  n.addEventListener("input", () => { r.value = n.value; });
+}
+$("f2").innerHTML = ""; $("f3").innerHTML = "";
+P2.forEach(p => buildField($("f2"), p));
+$("f2").insertAdjacentHTML("beforeend",
+  `<label><span class="lb">f0 算法</span><select id="f0method">
+     <option>rmvpe</option><option>pm</option><option>fcpe</option></select></label>`);
+P3.forEach(p => buildField($("f3"), p));
+
+/* ── 外观：模式 + 配色 ── */
+const MODES = [["auto","自动"],["light","浅色"],["dark","深色"]];
+const THEMES = [["swiss","#DA291C"],["blue","#1D4ED8"],["green","#1F6F4A"],
+                ["amber","#B45309"],["violet","#5B21B6"],["mono","#8A8A8A"]];
+const mq = window.matchMedia("(prefers-color-scheme: dark)");
+
+function applyLook(){
+  const mode = localStorage.getItem("rvc-mode") || "auto";
+  const theme = localStorage.getItem("rvc-theme") || "swiss";
+  const dark = mode === "dark" || (mode === "auto" && mq.matches);
+  document.documentElement.dataset.mode = dark ? "dark" : "light";
+  document.documentElement.dataset.theme = theme;
+  [...$("modes").children].forEach(b => b.classList.toggle("on", b.dataset.v === mode));
+  [...$("themes").children].forEach(b => b.classList.toggle("on", b.dataset.v === theme));
+}
+MODES.forEach(([v, label]) => {
+  const b = document.createElement("button");
+  b.className = "tb"; b.textContent = label; b.dataset.v = v;
+  b.onclick = () => { localStorage.setItem("rvc-mode", v); applyLook(); };
+  $("modes").appendChild(b);
+});
+$("modes").insertAdjacentHTML("beforeend", `<span class="sep"></span>`);
+THEMES.forEach(([v, color]) => {
+  const b = document.createElement("button");
+  b.className = "sw"; b.dataset.v = v; b.style.setProperty("--sw", color);
+  b.title = v; b.onclick = () => { localStorage.setItem("rvc-theme", v); applyLook(); };
+  $("themes").appendChild(b);
+});
+mq.addEventListener("change", applyLook);
+applyLook();
+$("hostaddr").textContent = location.host;
+
+/* ── 读取 / 下发 ── */
 async function load(){
   try{
     const s = await (await fetch('/api/state')).json();
-    NUM.forEach(k => { if(s[k] !== null && s[k] !== undefined) $(k).value = s[k]; });
+    NUM.forEach(k => {
+      const n = $(k), r = $(k + "_r");
+      if (s[k] !== null && s[k] !== undefined && n && r) { n.value = s[k]; r.value = s[k]; }
+    });
     if(s.f0method) $("f0method").value = s.f0method;
     if(!$("sg_hostapi").dataset.filled){
       const dv = await (await fetch('/api/devices')).json();
