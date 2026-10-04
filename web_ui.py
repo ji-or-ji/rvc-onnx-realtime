@@ -35,6 +35,45 @@ import onnx_rt as rt
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
+# 契约（configs/config.json）→ 引擎参数。字段名一律沿用原件（含拼写 threhold）
+CONTRACT_MAP = {
+    "block_time": ("block", float),
+    "extra_time": ("ctx", float),
+    "pitch": ("up_key", int),
+    "threhold": ("threshold", float),
+}
+F0_MAP = {"pm": "pm", "fcpe": "fcpe"}      # rmvpe/harvest/crepe 在 ONNX 引擎暂不支持
+
+
+def apply_contract(ctrl, path):
+    """把配方参数（config.json）载入引擎配置。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            c = json.load(f)
+    except Exception as e:
+        print("[web_ui] 读不到契约 %s（%s），使用默认参数" % (path, e), flush=True)
+        return
+    with ctrl.lock:
+        for k, (dst, cast) in CONTRACT_MAP.items():
+            if c.get(k) is not None:
+                try:
+                    ctrl.cfg[dst] = cast(c[k])
+                except Exception:
+                    pass
+        if c.get("sg_input_device"):
+            ctrl.cfg["in_spec"] = c["sg_input_device"]
+        if c.get("sg_output_device"):
+            ctrl.cfg["out_spec"] = c["sg_output_device"]
+        fm = str(c.get("f0method", "pm")).lower()
+        if fm not in F0_MAP:
+            print("[web_ui] f0method=%s 在 ONNX 引擎暂不支持，降级为 pm" % fm, flush=True)
+        ctrl.cfg["f0"] = F0_MAP.get(fm, "pm")
+        ctrl._thr_gate = 10 ** (ctrl.cfg["threshold"] / 20.0)
+        snap = dict(ctrl.cfg)
+    print("[web_ui] 契约已载入：block=%.3f ctx=%.3f up_key=%d threshold=%.1f in=%s out=%s" %
+          (snap["block"], snap["ctx"], snap["up_key"], snap["threshold"],
+           snap["in_spec"] or "默认", snap["out_spec"] or "默认"), flush=True)
+
 
 # ---------------- 引擎控制器 ----------------
 class Controller:
@@ -45,12 +84,13 @@ class Controller:
         self.dev_block = float(dev_block)
         self.prefill = int(prefill)  # 预铺几个推理块再出声
         self.cfg = {"ep": "cpu", "block": 0.5, "ctx": 0.25, "f0": "pm",
-                    "threads": 0, "gain": 1.0, "up_key": 12,
+                    "threads": 0, "gain": 1.0, "up_key": 12, "threshold": -60.0,
                     "in_spec": "", "out_spec": "", "in_sr": 0, "out_sr": 0}
         self.stats = {"ms": 0.0, "blocks": 0, "queue": 0.0, "lat": 0.0,
-                      "in": 0.0, "out": 0.0, "xrun_in": 0, "xrun_out": 0,
+                      "in": 0.0, "out": 0.0, "xrun_in": 0, "xrun_out": 0, "gate": 0,
                       "in_dev": "", "out_dev": "", "in_sr": 0, "out_sr": 0}
         self._stop = threading.Event()
+        self._thr_gate = 10 ** (-60.0 / 20.0)
         self._thr = None
         self._gain = 1.0
 
@@ -84,6 +124,11 @@ class Controller:
             with self.lock:
                 self.cfg["gain"] = float(value)
             return True
+        if key == "threshold":
+            self._thr_gate = 10 ** (float(value) / 20.0)
+            with self.lock:
+                self.cfg["threshold"] = float(value)
+            return True
         return False
 
     # --- 内部 ---
@@ -114,8 +159,16 @@ class Controller:
             self._put(phase="loading", msg="正在构建推理引擎（首次较慢）…")
             eng = rt.Engine(cfg["ep"], cfg["block"], cfg["ctx"], cfg["f0"],
                             cfg["threads"], cfg["up_key"])
-            in_dev, in_def = rt.resolve_dev(cfg["in_spec"], True)
-            out_dev, out_def = rt.resolve_dev(cfg["out_spec"], False)
+            try:
+                in_dev, in_def = rt.resolve_dev(cfg["in_spec"], True)
+            except SystemExit as e:
+                self._put(msg="输入设备未找到，改用系统默认（%s）" % e)
+                in_dev, in_def = None, None
+            try:
+                out_dev, out_def = rt.resolve_dev(cfg["out_spec"], False)
+            except SystemExit as e:
+                self._put(msg="输出设备未找到，改用系统默认（%s）" % e)
+                out_dev, out_def = None, None
             in_sr = int(cfg["in_sr"]) or in_def or rt.SR_IN
             out_sr = int(cfg["out_sr"]) or out_def or rt.SR_OUT
             block_in = int(round(eng.block * in_sr / rt.SR_IN))     # 一个推理块 = 多少输入样本
@@ -183,6 +236,7 @@ class Controller:
                       xrun_in=0, xrun_out=0, queue=0.0, lat=0.0)
 
             times = []
+            gcount = 0
             while not self._stop.is_set():
                 with lk:
                     have = st["iw"] - st["ir"]
@@ -202,14 +256,21 @@ class Controller:
                     time.sleep(0.004)
                     continue
 
-                x16 = rt._resample(raw, in_sr, rt.SR_IN) if in_sr != rt.SR_IN else raw
-                if len(x16) < eng.block:
-                    x16 = np.pad(x16, (0, eng.block - len(x16)))
-                eng.push(x16[:eng.block])
-                a, ms = eng.run()
-                if out_sr != rt.SR_OUT:
-                    a = rt._resample(a, rt.SR_OUT, out_sr)
-                a = (a * self._gain).astype(np.float32)
+                if self._thr_gate > 0 and float(np.sqrt(np.mean(raw * raw))) < self._thr_gate:
+                    # 静音门限：不推理，直接补静音；省下的算力全留给说话那一瞬
+                    a, ms = np.zeros(block_out, dtype=np.float32), 0.0
+                    gcount += 1
+                    gated = True
+                else:
+                    x16 = rt._resample(raw, in_sr, rt.SR_IN) if in_sr != rt.SR_IN else raw
+                    if len(x16) < eng.block:
+                        x16 = np.pad(x16, (0, eng.block - len(x16)))
+                    eng.push(x16[:eng.block])
+                    a, ms = eng.run()
+                    if out_sr != rt.SR_OUT:
+                        a = rt._resample(a, rt.SR_OUT, out_sr)
+                    a = (a * self._gain).astype(np.float32)
+                    gated = False
 
                 with lk:
                     space = out_len - (st["ow"] - st["or"])
@@ -226,14 +287,15 @@ class Controller:
                     st["ow"] += len(a)
                     q = (st["ow"] - st["or"]) / block_out
 
-                times.append(ms)
-                if len(times) > 60:
-                    times.pop(0)
-                self._put(ms=sum(times) / len(times),
+                if not gated:
+                    times.append(ms)
+                    if len(times) > 60:
+                        times.pop(0)
+                self._put(ms=(sum(times) / len(times)) if times else 0.0,
                           blocks=self.stats["blocks"] + 1,
                           queue=round(q, 2),
                           lat=round(queued / out_sr * 1000.0, 1),
-                          xrun_in=xr["in"], xrun_out=xr["out"], **lv)
+                          xrun_in=xr["in"], xrun_out=xr["out"], gate=gcount, **lv)
         except Exception as e:  # noqa
             self._put(phase="error", msg="%s: %s" % (type(e).__name__, e))
         finally:
@@ -331,9 +393,12 @@ def main():
     ap.add_argument("--dev-block", type=float, default=0.05,
                     help="设备回调块长(秒)：卡顿就调大(0.08~0.15)，延迟敏感就调小")
     ap.add_argument("--prefill", type=int, default=1, help="输出预铺块数")
+    ap.add_argument("--config", default=os.path.join("configs", "config.json"),
+                    help="参数契约（配方写入的文件）")
     a = ap.parse_args()
     CTRL.dev_block = a.dev_block
     CTRL.prefill = a.prefill
+    apply_contract(CTRL, a.config)
     print("RVC Web console -> http://%s:%d  (dev-block=%.3fs prefill=%d)"
           % (a.host, a.port, a.dev_block, a.prefill), flush=True)
     uvicorn.run(app, host=a.host, port=a.port, log_level="warning")

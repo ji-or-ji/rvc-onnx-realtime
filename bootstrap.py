@@ -24,6 +24,8 @@ import sys
 import time
 import urllib.request
 
+from progress import Progress
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 IS_WIN = os.name == "nt"
 STATE_DIR = os.path.join(ROOT, "runtime")
@@ -59,8 +61,13 @@ PROFILES = {
 BACKEND_RECIPE = {"torch-cuda": "torch-cuda", "ort-dml": "dml-ort", "ort-cpu": "cpu-ort"}
 
 
+_P = None
+
+
 def log(msg):
     print("[bootstrap] " + msg, flush=True)
+    if _P:
+        _P.log(msg)
 
 
 def run(cmd, cwd=None, quiet=False, timeout=None):
@@ -81,9 +88,46 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def download_file(url, dest, sha256="", on_progress=None):
+    """带断点续传的下载。on_progress(已下载字节, 总字节, 速度B/s)"""
+    tmp = dest + ".part"
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    have = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+    req = urllib.request.Request(url, headers={"User-Agent": "rvc-bootstrap/1.0"})
+    if have:
+        req.add_header("Range", "bytes=%d-" % have)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        total = int(r.headers.get("Content-Length") or 0)
+        if getattr(r, "status", 200) == 206:
+            total += have
+        else:
+            have = 0                        # 服务端不支持续传：重头来
+        done, last_t, last_b = have, time.time(), have
+        with open(tmp, "ab" if have else "wb") as f:
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
+                done += len(chunk)
+                if on_progress and time.time() - last_t >= 0.3:
+                    spd = (done - last_b) / max(1e-6, time.time() - last_t)
+                    last_t, last_b = time.time(), done
+                    on_progress(done, total, spd)
+    os.replace(tmp, dest)
+    if sha256:
+        got = sha256_file(dest)
+        if got != sha256:
+            raise SystemExit("校验失败：%s\n  期望 %s\n  实际 %s" % (dest, sha256, got))
+    if on_progress:
+        size = os.path.getsize(dest)
+        on_progress(size, size, 0.0)
+
+
 class Boot:
-    def __init__(self, args):
+    def __init__(self, args, progress=None):
         self.a = args
+        self.p = progress
         self.state = self._load_state()
         self.env = args.env or self.state.get("env")
         self.recipe = None
@@ -107,6 +151,8 @@ class Boot:
 
     # ---------------- 1. 探测 ----------------
     def probe(self):
+        if self.p:
+            self.p.set(step="1/6 探测环境", pct=4, msg="检查系统、显卡、音频设备…")
         import env_probe
         info = env_probe.collect(disk_path=ROOT)
         v = info["verdict"]
@@ -132,6 +178,8 @@ class Boot:
             return json.load(f)
 
     def decide(self, info):
+        if self.p:
+            self.p.set(step="2/6 选择配方", pct=10, msg="按体检结果匹配后端与配方")
         if self.a.recipe:
             r = self.load_recipe(self.a.recipe)
             log("按指定配方：%s（%s）" % (r["id"], r["label"]))
@@ -190,6 +238,8 @@ class Boot:
         ]
 
     def ensure_env(self, recipe):
+        if self.p:
+            self.p.set(step="3/6 准备运行环境", pct=16, msg="查找或创建 venv")
         profile = recipe["deps"]["profile"]
         for c in self.candidates():
             if c and os.path.exists(self.env_py(c)):
@@ -221,6 +271,9 @@ class Boot:
         return run(cmd)
 
     def ensure_deps(self, recipe, info):
+        if self.p:
+            self.p.set(step="4/6 安装依赖", pct=30,
+                       msg="按档位成套安装（首次可能需要下载数 GB）")
         profile = recipe["deps"]["profile"]
         spec = PROFILES[profile]
         ok, why = self.env_health(self.env, profile)
@@ -263,20 +316,31 @@ class Boot:
         if self.a.dry_run:
             log("（dry-run）将下载 %s -> %s" % (ref["url"], ref["file"]))
             return
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+        def cb(done, total, spd):
+            if self.p:
+                if total:
+                    self.p.set(pct=40 + 45.0 * done / total,
+                               msg="%s  %.1f/%.1f MB  %.1f MB/s" %
+                                   (kind, done / 2**20, total / 2**20, spd / 2**20))
+                else:
+                    self.p.set(msg="%s  %.1f MB" % (kind, done / 2**20))
+
         log("下载 %s：%s" % (kind, ref["url"]))
-        urllib.request.urlretrieve(ref["url"], dest)
-        if ref.get("sha256") and sha256_file(dest) != ref["sha256"]:
-            raise SystemExit("%s 校验失败，已中止" % kind)
+        download_file(ref["url"], dest, ref.get("sha256", ""), cb)
         log("%s 完成" % kind)
 
     def ensure_models(self, recipe):
+        if self.p:
+            self.p.set(step="5/6 准备模型", pct=40, msg="检查模型 / 索引 / f0 三件套")
         for kind in ("model", "index", "f0_model"):
             self.fetch_one(kind, recipe.get(kind))
 
     # ---------------- 6. 参数 & 服务 ----------------
     def apply_params(self, recipe):
         """把配方参数写进 configs/config.json（保留原有未知字段）。"""
+        if self.p:
+            self.p.set(step="6/6 应用参数", pct=90, msg="写入 configs/config.json")
         try:
             with open(CFG, encoding="utf-8") as f:
                 cfg = json.load(f)
@@ -293,6 +357,8 @@ class Boot:
 
     def serve(self, recipe):
         if self.a.no_serve:
+            if self.p:
+                self.p.finish("环境已就绪（按要求未启动服务）")
             log("已按要求停在起服务之前。")
             return
         py = self.env_py()
@@ -300,6 +366,11 @@ class Boot:
         if self.a.dry_run:
             log("（dry-run）将启动：%s web_ui.py --port %d" % (py, self.a.port))
             return
+        if self.p:
+            self.p.set(step="启动服务", pct=97, msg="正在拉起控制台…")
+            self.p.finish()
+            time.sleep(2.0)      # 留给进度页一次轮询，看到 done 后自动重载
+            self.p.stop()        # 让出端口给 web_ui
         log("启动服务：%s" % url)
         subprocess.Popen([py, "web_ui.py", "--port", str(self.a.port)], cwd=ROOT)
         log("浏览器打开 %s 即可。听不见声音请检查设备选择。" % url)
@@ -314,10 +385,20 @@ def main():
     ap.add_argument("--pip-index", default="", help="pip 镜像（国内建议清华源）")
     ap.add_argument("--port", type=int, default=8899)
     ap.add_argument("--no-serve", action="store_true")
+    ap.add_argument("--no-ui", action="store_true", help="不提供准备期进度页")
     a = ap.parse_args()
 
+    global _P
     log("项目目录：%s" % ROOT)
-    boot = Boot(a)
+
+    P = None
+    if not a.dry_run and not a.no_serve and not a.no_ui:
+        P = Progress()
+        if P.start(a.port):
+            _P = P
+            P.log("准备页已就绪：http://127.0.0.1:%d （浏览器会自动刷新）" % a.port)
+
+    boot = Boot(a, P)
     info = boot.probe()
     recipe = boot.decide(info)
     boot.plan(info, recipe)
