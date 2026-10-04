@@ -1,11 +1,17 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-size="l">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>RVC · 实时变声控制台</title>
 <style>
+/* ── 字号档位：整页 rem 等比缩放，遥控时按"看得清"选 ── */
+html{font-size:16px}
+html[data-size="m"]  {font-size:16px}   /* 标准 */
+html[data-size="l"]  {font-size:19px}   /* 大（默认） */
+html[data-size="xl"] {font-size:22px}   /* 特大 */
+
 /* ── 配色：模式 × 主题，全部走变量 ── */
 :root{
   --paper:#F2EFE9; --ink:#111111; --accent:#DA291C; --on-accent:#FFFFFF; --muted:#6B6B6B;
@@ -25,102 +31,103 @@ body{
   background:var(--paper);color:var(--ink);
   font-family:"Inter","Neue Haas Grotesk","Helvetica Neue",Helvetica,Arial,"Noto Sans SC",sans-serif;
   font-weight:400;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;
-  padding:40px 36px 64px;
+  padding:2.2rem 2rem 3.6rem;
   transition:background .15s linear,color .15s linear;
 }
-.wrap{max-width:1200px;margin:0 auto}
-.grid{display:grid;grid-template-columns:repeat(12,1fr);column-gap:22px;row-gap:10px}
+.wrap{max-width:76rem;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);column-gap:1.35rem;row-gap:.6rem}
 
 /* ── 报头 ── */
-.masthead{border-bottom:2px solid var(--ink);padding-bottom:22px}
-.kicker{font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
-h1{margin-top:12px;font-size:clamp(38px,7vw,92px);font-weight:700;line-height:.92;letter-spacing:-.025em}
-.meta{font-size:10px;line-height:2;letter-spacing:.09em;text-transform:uppercase}
+.masthead{border-bottom:2px solid var(--ink);padding-bottom:1.3rem}
+.kicker{font-size:.7rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
+h1{margin-top:.7rem;font-size:clamp(2.3rem,6.4vw,5.6rem);font-weight:700;line-height:.94;letter-spacing:-.025em}
+.meta{font-size:.72rem;line-height:2;letter-spacing:.09em;text-transform:uppercase}
 .meta b{font-weight:700}
 
 /* ── 区块 ── */
-.sec{border-top:1px solid var(--ink);padding-top:14px;margin-top:44px}
-.num{font-size:11px;font-weight:700;letter-spacing:.1em}
-h2{font-size:15px;font-weight:700;letter-spacing:.02em;margin-top:3px}
-.hint{font-size:11px;line-height:1.7;margin-top:9px;max-width:26ch;color:var(--muted)}
-.fields{display:grid;grid-template-columns:repeat(3,1fr);column-gap:22px;row-gap:22px}
+.sec{border-top:1px solid var(--ink);padding-top:.85rem;margin-top:2.6rem}
+.num{font-size:.78rem;font-weight:700;letter-spacing:.1em}
+h2{font-size:1.02rem;font-weight:700;letter-spacing:.02em;margin-top:.2rem}
+.hint{font-size:.76rem;line-height:1.7;margin-top:.55rem;max-width:26ch;color:var(--muted)}
+.fields{display:grid;grid-template-columns:repeat(3,1fr);column-gap:1.35rem;row-gap:1.3rem}
 
 /* ── 控件 ── */
-.lb{display:block;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:3px}
+.lb{display:block;font-size:.76rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.15rem}
 select,input:not([type=range]){
   display:block;width:100%;background:transparent;border:0;border-bottom:1px solid var(--ink);
-  border-radius:0;color:var(--ink);font-family:inherit;padding:5px 0 6px;
-  font-size:18px;font-weight:700;letter-spacing:-.01em;appearance:none;outline:none;
+  border-radius:0;color:var(--ink);font-family:inherit;padding:.3rem 0 .35rem;
+  font-size:1.18rem;font-weight:700;letter-spacing:-.01em;appearance:none;outline:none;
 }
-select{font-size:15px}
+select{font-size:1rem}
 select:focus,input:not([type=range]):focus{border-bottom-color:var(--accent)}
 /* 下拉列表：不去管它就会用系统默认底色，深色模式下会和文字撞成隐形 */
 select option{background-color:var(--paper);color:var(--ink)}
 /* 自绘下拉箭头（appearance:none 把原生箭头一起抹掉了） */
 .sel{position:relative}
-.sel::after{content:"▾";position:absolute;right:0;bottom:7px;font-size:11px;line-height:1;
+.sel::after{content:"▾";position:absolute;right:0;bottom:.42rem;font-size:.72rem;line-height:1;
   pointer-events:none;color:var(--ink)}
-.sel select{padding-right:16px}
-.ctl{display:flex;align-items:center;gap:14px}
-.ctl input[type=number]{width:84px;flex:0 0 auto;text-align:left;padding-left:0}
+.sel select{padding-right:1.1rem}
+.ctl{display:flex;align-items:center;gap:.85rem}
+.ctl input[type=number]{width:5rem;flex:0 0 auto;text-align:left;padding-left:0}
 input[type=range]{
-  -webkit-appearance:none;appearance:none;flex:1 1 auto;width:100%;height:26px;
+  -webkit-appearance:none;appearance:none;flex:1 1 auto;width:100%;height:1.7rem;
   background:transparent;border:0;outline:none;cursor:pointer;
 }
 input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--ink)}
 input[type=range]::-webkit-slider-thumb{
-  -webkit-appearance:none;width:13px;height:13px;background:var(--accent);
-  border:0;border-radius:0;margin-top:-6px;
+  -webkit-appearance:none;width:.95rem;height:.95rem;background:var(--accent);
+  border:0;border-radius:0;margin-top:-.44rem;
 }
 input[type=range]::-moz-range-track{height:1px;background:var(--ink)}
-input[type=range]::-moz-range-thumb{width:13px;height:13px;background:var(--accent);border:0;border-radius:0}
+input[type=range]::-moz-range-thumb{width:.95rem;height:.95rem;background:var(--accent);border:0;border-radius:0}
 
 /* ── 操作 ── */
-.actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.actions{display:flex;gap:.85rem;align-items:center;flex-wrap:wrap}
 button{
-  font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
-  padding:15px 24px;border:1px solid var(--ink);background:transparent;color:var(--ink);
+  font-family:inherit;font-size:.8rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  padding:.9rem 1.4rem;border:1px solid var(--ink);background:transparent;color:var(--ink);
   border-radius:0;cursor:pointer;
 }
 button:active{background:var(--ink);color:var(--paper)}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 button.primary:active{background:var(--ink);border-color:var(--ink);color:var(--paper)}
 button.on{background:var(--ink);color:var(--paper)}
-.status{margin-left:auto;display:flex;align-items:center;gap:9px;
-  font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
-.sq{width:10px;height:10px;background:var(--ink);display:inline-block}
+.status{margin-left:auto;display:flex;align-items:center;gap:.55rem;
+  font-size:.8rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.sq{width:.62rem;height:.62rem;background:var(--ink);display:inline-block}
 .sq.on{background:var(--accent)}
 
-/* ── 外观 ✕ 主题 ── */
-.picks{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.sw{width:30px;height:30px;border:1px solid var(--ink);background:var(--sw);cursor:pointer;border-radius:0}
+/* ── 外观 ── */
+.picks{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+.sw{width:1.9rem;height:1.9rem;border:1px solid var(--ink);background:var(--sw);cursor:pointer;border-radius:0}
 .sw.on{outline:2px solid var(--ink);outline-offset:2px}
-.sep{width:1px;height:26px;background:var(--ink);margin:0 4px}
-.tb{padding:10px 13px;font-size:10px}
+.sep{width:1px;height:1.6rem;background:var(--ink);margin:0 .2rem}
+.tb{padding:.6rem .85rem;font-size:.76rem}
+.sub{font-size:.72rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:.9rem 0 .5rem}
 
-footer{border-top:1px solid var(--ink);margin-top:52px;padding-top:12px;
-  font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
-  display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}
+footer{border-top:1px solid var(--ink);margin-top:3.2rem;padding-top:.75rem;
+  font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+  display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}
 
-/* ── 手机端 ── */
+/* ── 中等屏 ── */
 @media(max-width:900px){
   .fields{grid-template-columns:repeat(2,1fr)}
 }
+/* ── 手机端：单列、加大触摸区 ── */
 @media(max-width:640px){
-  body{padding:22px 16px 46px}
-  h1{font-size:clamp(34px,11vw,52px)}
-  .grid{column-gap:16px}
-  .fields{grid-template-columns:1fr;row-gap:20px}
+  body{padding:1.2rem .9rem 2.6rem}
+  h1{font-size:clamp(2rem,11vw,3.2rem)}
+  .grid{column-gap:1rem}
+  .fields{grid-template-columns:1fr;row-gap:1.2rem}
   .sec .head{grid-column:1/13}
-  .body{grid-column:1/13}
+  .sec .body{grid-column:1/13}
   .hint{max-width:none}
-  input[type=range]{height:34px}
-  input[type=range]::-webkit-slider-thumb{width:17px;height:17px;margin-top:-8px}
-  select,input:not([type=range]){font-size:16px}
-  .actions{gap:10px}
-  .actions button{flex:1 1 auto;padding:17px 14px}
+  input[type=range]{height:2.2rem}
+  input[type=range]::-webkit-slider-thumb{width:1.25rem;height:1.25rem;margin-top:-.6rem}
+  .actions{gap:.6rem}
+  .actions button{flex:1 1 auto}
   .status{margin-left:0;width:100%;justify-content:flex-start}
-  .meta{font-size:9.5px}
 }
 </style>
 </head>
@@ -189,11 +196,15 @@ footer{border-top:1px solid var(--ink);margin-top:52px;padding-top:12px;
     <div class="head" style="grid-column:1/4">
       <div class="num">05</div>
       <h2>外观</h2>
-      <p class="hint">配色与明暗。设置存在本机浏览器里。</p>
+      <p class="hint">字号、配色与明暗。设置存在本机浏览器里。</p>
     </div>
     <div class="body" style="grid-column:4/13">
+      <div class="sub">字号</div>
+      <div class="picks" id="sizes"></div>
+      <div class="sub">明暗</div>
       <div class="picks" id="modes"></div>
-      <div class="picks" style="margin-top:14px" id="themes"></div>
+      <div class="sub">配色</div>
+      <div class="picks" id="themes"></div>
     </div>
   </section>
 
@@ -238,30 +249,40 @@ $("f2").insertAdjacentHTML("beforeend",
      <option>rmvpe</option><option>pm</option><option>fcpe</option></select></div>`);
 P3.forEach(p => buildField($("f3"), p));
 
-/* ── 外观：模式 + 配色 ── */
-const MODES = [["auto","自动"],["light","浅色"],["dark","深色"]];
+/* ── 外观：字号 / 明暗 / 配色 ── */
+const SIZES  = [["m","标准"],["l","大"],["xl","特大"]];
+const MODES  = [["auto","自动"],["light","浅色"],["dark","深色"]];
 const THEMES = [["swiss","#DA291C"],["blue","#1D4ED8"],["green","#1F6F4A"],
                 ["amber","#B45309"],["violet","#5B21B6"],["mono","#8A8A8A"]];
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
 
 function applyLook(){
-  const mode = localStorage.getItem("rvc-mode") || "auto";
+  const size  = localStorage.getItem("rvc-size")  || "l";
+  const mode  = localStorage.getItem("rvc-mode")  || "auto";
   const theme = localStorage.getItem("rvc-theme") || "swiss";
-  const dark = mode === "dark" || (mode === "auto" && mq.matches);
-  document.documentElement.dataset.mode = dark ? "dark" : "light";
-  document.documentElement.dataset.theme = theme;
+  const dark  = mode === "dark" || (mode === "auto" && mq.matches);
+  const html  = document.documentElement;
+  html.dataset.size = size;
+  html.dataset.mode = dark ? "dark" : "light";
+  html.dataset.theme = theme;
   // 关键：告诉浏览器现在是深/浅色，否则原生下拉列表、滚动条仍按浅色画
-  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  html.style.colorScheme = dark ? "dark" : "light";
+  [...$("sizes").children].forEach(b => b.classList.toggle("on", b.dataset.v === size));
   [...$("modes").children].forEach(b => b.classList.toggle("on", b.dataset.v === mode));
   [...$("themes").children].forEach(b => b.classList.toggle("on", b.dataset.v === theme));
 }
+SIZES.forEach(([v, label]) => {
+  const b = document.createElement("button");
+  b.className = "tb"; b.textContent = label; b.dataset.v = v;
+  b.onclick = () => { localStorage.setItem("rvc-size", v); applyLook(); };
+  $("sizes").appendChild(b);
+});
 MODES.forEach(([v, label]) => {
   const b = document.createElement("button");
   b.className = "tb"; b.textContent = label; b.dataset.v = v;
   b.onclick = () => { localStorage.setItem("rvc-mode", v); applyLook(); };
   $("modes").appendChild(b);
 });
-$("modes").insertAdjacentHTML("beforeend", `<span class="sep"></span>`);
 THEMES.forEach(([v, color]) => {
   const b = document.createElement("button");
   b.className = "sw"; b.dataset.v = v; b.style.setProperty("--sw", color);
