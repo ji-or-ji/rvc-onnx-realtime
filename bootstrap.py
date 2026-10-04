@@ -362,11 +362,12 @@ class Boot:
             log("已按要求停在起服务之前。")
             return
         py = self.env_py()
-        # 高档档位 = 原版引擎（已验证流畅）；ONNX 轻量档才用 web_ui
+        # 高档档位：起管理台（它再去管各家引擎，含一键起内置引擎）
+        # ONNX 轻量档：直接起 web_ui
         if recipe["backend"] == "torch-cuda":
-            target = "realtime_gui.py"
-            url = "http://127.0.0.1:8898"        # 遥控面板（原版窗口会同时打开）
-            args = [py, target]
+            target = "console.py"
+            url = "http://127.0.0.1:8899"        # 管理台（面板 + 模型库 + 预设）
+            args = [py, target, "--host", "0.0.0.0", "--port", "8899"]
         else:
             target = "web_ui.py"
             url = "http://127.0.0.1:%d" % self.a.port
@@ -382,7 +383,10 @@ class Boot:
             self.p.stop()        # 让出端口给 web_ui
         log("启动 %s：%s" % (target, url))
         subprocess.Popen(args, cwd=ROOT)
-        log("浏览器打开 %s 即可（原版窗口也会同时出现，那是引擎本体）。" % url)
+        if target == "console.py":
+            log("浏览器打开 %s 即可；引擎不需要先开——面板里有「启动引擎」，点一下就把原版窗口拉起来。" % url)
+        else:
+            log("浏览器打开 %s 即可。" % url)
         self.save_state(served=time.strftime("%Y-%m-%d %H:%M:%S"))
 
 
