@@ -1,0 +1,19 @@
+{
+  "_label": "正太音·低延迟（更跟手，可能略抖）",
+  "pth_path": "assets/weights/julesbrown.pth",
+  "index_path": "assets/indices/julesbrown.index",
+  "sg_hostapi": "MME",
+  "sg_wasapi_exclusive": false,
+  "sg_input_device": "麦克风 (2- USB Audio Device)",
+  "sg_output_device": "扬声器 (2- USB Audio Device)",
+  "sr_type": "sr_device",
+  "threhold": -60.0,
+  "pitch": 12.0,
+  "formant": -1.75,
+  "index_rate": 0.28,
+  "rms_mix_rate": 0.7,
+  "block_time": 0.04,
+  "crossfade_length": 0.02,
+  "extra_time": 1.2,
+  "f0method": "rmvpe"
+}

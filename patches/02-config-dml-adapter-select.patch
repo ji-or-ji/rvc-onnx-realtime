@@ -1,0 +1,45 @@
+diff --git "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\configs\\config.py.bak-dml" "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\configs\\config.py"
+index 525fec9..ea3323d 100644
+--- "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\configs\\config.py.bak-dml"
++++ "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\configs\\config.py"
+@@ -86,11 +86,26 @@ CPU_INFO = "0\tCPU (CPU training is slower)"
+ IS_GPU = bool(GPU_INFOS)
+ 
+ 
++_DML_INDEX = None
++
++
+ def _detect_directml():
++    global _DML_INDEX
+     try:
+         import torch_directml
+ 
+-        device = torch_directml.device(torch_directml.default_device())
++        idx = torch_directml.default_device()
++        want = os.environ.get("RVC_DML_DEVICE", "").strip()
++        if want:
++            if want.lstrip("-").isdigit():
++                idx = int(want)
++            else:
++                for i in range(torch_directml.device_count()):
++                    if want.lower() in torch_directml.device_name(i).lower():
++                        idx = i
++                        break
++        _DML_INDEX = idx
++        device = torch_directml.device(idx)
+         # Device construction alone can succeed without a usable adapter.
+         probe = torch.ones(1, dtype=torch.float32).to(device)
+         _ = (probe + 1).cpu()
+@@ -272,7 +287,11 @@ class Config:
+             logger.info("Use DirectML instead")
+             import torch_directml
+ 
+-            self.device = torch_directml.device(torch_directml.default_device())
++            self.device = torch_directml.device(
++                _DML_INDEX
++                if _DML_INDEX is not None
++                else torch_directml.default_device()
++            )
+             self.dtype = torch.float32
+             self.is_half = False
+             self.preprocess_per = 3.0

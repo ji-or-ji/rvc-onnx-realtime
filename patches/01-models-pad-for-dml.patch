@@ -1,0 +1,21 @@
+diff --git "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\infer\\module\\models.py.bak-dml" "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\infer\\module\\models.py"
+index d0e6124..107519d 100644
+--- "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\infer\\module\\models.py.bak-dml"
++++ "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\infer\\module\\models.py"
+@@ -312,7 +312,15 @@ class SineGen(torch.nn.Module):
+         )
+         rad2 = torch.fmod(rad[..., -1:].float() + 0.5, 1.0) - 0.5
+         rad_acc = rad2.cumsum(dim=1).fmod(1.0).to(f0)
+-        rad += F.pad(rad_acc, (0, 0, 1, -1))
++        if rad_acc.device.type == "privateuseone":  # DirectML: no mixed-sign pad
++            lead = torch.zeros(
++                (rad_acc.shape[0], 1, rad_acc.shape[2]),
++                dtype=rad_acc.dtype,
++                device=rad_acc.device,
++            )
++            rad = rad + torch.cat((lead, rad_acc[:, :-1, :]), dim=1)
++        else:
++            rad += F.pad(rad_acc, (0, 0, 1, -1))
+         rad = rad.reshape(f0.shape[0], -1, 1)
+         rad = torch.multiply(
+             rad,

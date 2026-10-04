@@ -1,0 +1,12 @@
+diff --git "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py.bak-preset" "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py"
+index bf3e40a..ef49b3a 100644
+--- "a/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py.bak-preset"
++++ "b/D:\\Hanako-workspace\\rvc\\Retrieval-based-Voice-Conversion-WebUI\\realtime_gui.py"
+@@ -461,6 +461,7 @@ if __name__ == "__main__":
+                             ],
+                             "threhold": values["threhold"],
+                             "pitch": values["pitch"],
++                            "formant": values["formant"],
+                             "rms_mix_rate": values["rms_mix_rate"],
+                             "index_rate": values["index_rate"],
+                             # "device_latency": values["device_latency"],
