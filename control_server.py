@@ -23,6 +23,35 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 GUI = None
 PORT = 8898
 HERE = os.path.dirname(os.path.abspath(__file__))
+TOKEN = ""          # 启动时从 control_token.txt 读/生成；RVC_NO_TOKEN=1 可关闭鉴权
+
+
+def _token_file():
+    return os.path.join(HERE, "control_token.txt")
+
+
+def load_token():
+    """读或生成访问令牌（持久化，重启不变，手机收藏的地址不会失效）。"""
+    global TOKEN
+    if os.environ.get("RVC_NO_TOKEN") == "1":
+        TOKEN = ""
+        return TOKEN
+    try:
+        with open(_token_file(), encoding="utf-8") as f:
+            t = f.read().strip()
+        if t:
+            TOKEN = t
+            return TOKEN
+    except Exception:
+        pass
+    import secrets
+    TOKEN = secrets.token_urlsafe(12)
+    try:
+        with open(_token_file(), "w", encoding="utf-8") as f:
+            f.write(TOKEN)
+    except Exception:
+        pass
+    return TOKEN
 
 FIELDS = ["pth_path", "index_path", "sg_hostapi", "sg_wasapi_exclusive",
           "sg_input_device", "sg_output_device", "sr_type", "threhold",
@@ -77,6 +106,17 @@ def devices():
 
 
 class _H(BaseHTTPRequestHandler):
+    def _authed(self):
+        """令牌校验：优先请求头 X-Token，其次 URL 上的 ?k=。关掉令牌时直接放行。"""
+        if not TOKEN:
+            return True
+        from urllib.parse import urlparse, parse_qs
+        k = self.headers.get("X-Token")
+        if not k:
+            q = parse_qs(urlparse(self.path).query)
+            k = (q.get("k") or [""])[0]
+        return k == TOKEN
+
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         b = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(code)
@@ -91,6 +131,9 @@ class _H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
+            if self.path.startswith("/api/") and not self._authed():
+                self._send(401, json.dumps({"error": "token required"}, ensure_ascii=False))
+                return
             if self.path.startswith("/api/state"):
                 self._send(200, json.dumps(state(), ensure_ascii=False))
             elif self.path.startswith("/api/devices"):
@@ -108,6 +151,9 @@ class _H(BaseHTTPRequestHandler):
         except Exception:
             payload = {}
         try:
+            if not self._authed():
+                self._send(401, json.dumps({"error": "token required"}, ensure_ascii=False))
+                return
             if self.path.startswith("/api/apply"):
                 # 线程安全：交给 Tk 主循环，由原版 set_values() 应用
                 GUI.window.write_event_value("-CTRL-APPLY", _merged(payload))
@@ -155,15 +201,19 @@ def start(gui, port=PORT, host="0.0.0.0"):
     """在原版进程内启动控制接口（守护线程）。
 
     host 默认 0.0.0.0：手机/平板在同一局域网都能开（首次会弹一次 Windows 防火墙询问）。
-    注意：局域网上没有鉴权，谁能访问这个端口谁就能改参数。想只给本机，传 host="127.0.0.1"。
+    鉴权：默认开启，令牌存在 control_token.txt（首次自动生成，重启不变）；
+          打开带 ?k=<令牌> 的地址一次，浏览器/面板就会记住。
+          RVC_NO_TOKEN=1 环境变量可关闭鉴权。
     """
     global GUI, PORT
     GUI, PORT = gui, port
+    tk = load_token()
     srv = ThreadingHTTPServer((host, port), _H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    print("[遥控] 本机   http://127.0.0.1:%d" % port, flush=True)
+    suffix = ("?k=" + tk) if tk else ""
+    print("[遥控] 本机   http://127.0.0.1:%d%s" % (port, suffix), flush=True)
     if host not in ("127.0.0.1", "localhost"):
         for ip in _lan_ips()[:3]:
-            print("[遥控] 局域网 http://%s:%d" % (ip, port), flush=True)
-        print("[遥控] （手机连同一个 Wi-Fi，用上面能打开的那个地址）", flush=True)
+            print("[遥控] 局域网 http://%s:%d%s" % (ip, port, suffix), flush=True)
+        print("[遥控] （手机连同一个 Wi-Fi，用上面能打开的那个地址；带 ?k= 的整串都要复制）", flush=True)
     return srv
