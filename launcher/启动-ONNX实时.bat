@@ -2,6 +2,8 @@
 chcp 65001 >nul
 title RVC Realtime (ONNX)
 cd /d "%~dp0"
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
 echo ============  RVC realtime (ONNX backend)  ============
 echo   [1] CPU              - monitor speakers (no GPU)
 echo   [2] RTX 2060 (DML)   - monitor speakers, fastest
