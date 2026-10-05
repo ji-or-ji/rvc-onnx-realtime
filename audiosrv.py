@@ -56,15 +56,23 @@ class AudioService:
     # ---------------- 设备层 ----------------
     def _find(self, hints, want_input):
         import sounddevice as sd
+        cands = []
         for i, d in enumerate(sd.query_devices()):
             if want_input and d["max_input_channels"] <= 0:
                 continue
             if (not want_input) and d["max_output_channels"] <= 0:
                 continue
+            api = sd.query_hostapis(d["hostapi"])["name"]
+            if "WDM-KS" in api:
+                continue          # WDM-KS 名字会被截断、也最脆弱，不选它
             for h in hints:
                 if h.lower() in d["name"].lower():
-                    return i, d["name"]
-        return None, None
+                    cands.append((i, d["name"]))
+                    break
+        if not cands:
+            return None, None
+        cands.sort(key=lambda t: 0 if "WASAPI" in t[1] else 1)   # WASAPI 优先（无则任意）
+        return cands[0]
 
     def open_devices(self):
         """打开两路设备：写播放端（远端麦克风送进引擎）、读采集端（引擎输出广播出去）。"""
@@ -107,8 +115,11 @@ class AudioService:
         # 于是远端麦克风会被当成“引擎输出”马上广播回给所有人（回音/啸叫）。
         if i_out is not None and self.devices["in_play"]:
             import re
-            bare = lambda s: re.sub(r"\b(input|output|in|out)\b", "", s, flags=re.I).strip().lower()
-            if bare(self.devices["in_play"]) == bare(n_out):
+            def bare(s):
+                s = re.sub(r"\b(input|output|in|out)\b", "", s, flags=re.I)
+                return re.sub(r"\s+", " ", s).strip().lower()
+            # 取前 12 字比对：容忍某些宿主 API 的设备名截断
+            if bare(self.devices["in_play"])[:12] == bare(n_out)[:12]:
                 self.devices["note"] = (
                     "输入与输出落在同一对虚拟线上（自己咬自己）：远端麦克风会被当成引擎输出"
                     "立刻广播回来。建议再装一对（VB-Cable A+B / VoiceMeeter）做分离。")
