@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-size="l">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>RVC · 网络音频</title>
+<style>
+html{font-size:16px}
+html[data-size="m"]{font-size:16px}
+html[data-size="l"]{font-size:19px}
+html[data-size="xl"]{font-size:22px}
+:root{--paper:#F2EFE9;--ink:#111111;--accent:#DA291C;--on-accent:#FFF;--muted:#6B6B6B}
+html[data-mode="dark"]{--paper:#0E0E0E;--ink:#F2EFE9;--accent:#DA291C;--on-accent:#FFF;--muted:#9A9A9A}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);
+  font-family:"Inter","Neue Haas Grotesk","Helvetica Neue",Helvetica,Arial,"Noto Sans SC",sans-serif;
+  font-weight:400;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;
+  padding:2.2rem 2rem 3.6rem}
+.wrap{max-width:60rem;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);column-gap:1.35rem;row-gap:.6rem}
+.masthead{border-bottom:2px solid var(--ink);padding-bottom:1.3rem}
+.kicker{font-size:.7rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
+h1{margin-top:.7rem;font-size:clamp(2.1rem,6vw,4.6rem);font-weight:700;line-height:.94;letter-spacing:-.025em}
+.meta{font-size:.72rem;line-height:2;letter-spacing:.09em;text-transform:uppercase}
+.meta b{font-weight:700}
+.sec{border-top:1px solid var(--ink);padding-top:.85rem;margin-top:2.4rem}
+.num{font-size:.78rem;font-weight:700;letter-spacing:.1em}
+h2{font-size:1.02rem;font-weight:700;margin-top:.2rem}
+.hint{font-size:.76rem;line-height:1.7;margin-top:.55rem;color:var(--muted)}
+.lb{display:block;font-size:.76rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:.15rem}
+input[type=text]{display:block;width:100%;background:transparent;border:0;border-bottom:1px solid var(--ink);
+  border-radius:0;color:var(--ink);font-family:inherit;font-size:1.05rem;font-weight:700;padding:.3rem 0 .35rem;outline:none}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:1.7rem;background:transparent;outline:none}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--ink)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:1rem;height:1rem;background:var(--accent);
+  border:0;border-radius:0;margin-top:-.47rem}
+.actions{display:flex;gap:.7rem;align-items:center;flex-wrap:wrap;margin-top:.4rem}
+button{font-family:inherit;font-size:.8rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  padding:.85rem 1.3rem;border:1px solid var(--ink);background:transparent;color:var(--ink);border-radius:0;cursor:pointer}
+button:active{background:var(--ink);color:var(--paper)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button:disabled{opacity:.4}
+.status{display:flex;align-items:center;gap:.55rem;font-size:.8rem;font-weight:700;
+  letter-spacing:.1em;text-transform:uppercase;margin-top:.8rem}
+.sq{width:.62rem;height:.62rem;background:var(--ink);display:inline-block}
+.sq.on{background:var(--accent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:.3rem .9rem;font-size:.8rem;margin-top:.7rem}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;font-weight:700}
+footer{border-top:1px solid var(--ink);margin-top:3rem;padding-top:.75rem;font-size:.72rem;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+@media(max-width:640px){body{padding:1.2rem .9rem 2.6rem}.sec .full{grid-column:1/13}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="grid masthead">
+    <div style="grid-column:1/8">
+      <div class="kicker">RVC · Network Audio</div>
+      <h1>网络音频</h1>
+    </div>
+    <div class="meta" style="grid-column:9/13">
+      <div>地址 <b id="ep">—</b></div>
+      <div>本机身份 <b id="me">—</b></div>
+      <div>2026 · 监听级</div>
+    </div>
+  </header>
+
+  <section class="grid sec">
+    <div class="full" style="grid-column:1/4">
+      <div class="num">01</div><h2>设备身份</h2>
+      <p class="hint">这个名字会出现在别人的界面上，用来认人。</p>
+    </div>
+    <div class="full" style="grid-column:4/13">
+      <span class="lb">设备名</span>
+      <input type="text" id="label" placeholder="例如 手机-小季">
+      <div class="actions"><button id="rename">改名字</button></div>
+    </div>
+  </section>
+
+  <section class="grid sec">
+    <div class="full" style="grid-column:1/4">
+      <div class="num">02</div><h2>输入权</h2>
+      <p class="hint">同一时刻只允许一台设备当输入。被占了可以先申请，再决定要不要抢。</p>
+    </div>
+    <div class="full" style="grid-column:4/13">
+      <div class="actions">
+        <button class="primary" id="claim">申请输入</button>
+        <button id="takeover">抢占</button>
+        <button id="release">释放</button>
+        <button id="mic">开麦克风</button>
+      </div>
+      <div class="status"><span class="sq" id="dot"></span><span id="st">未连接</span></div>
+      <dl class="kv">
+        <dt>当前输入源</dt><dd id="holder">—</dd>
+        <dt>听众</dt><dd id="listeners">0</dd>
+        <dt>上行字节</dt><dd id="up">0</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="grid sec">
+    <div class="full" style="grid-column:1/4">
+      <div class="num">03</div><h2>监听</h2>
+      <p class="hint">音量只在本机生效，不影响别人。</p>
+    </div>
+    <div class="full" style="grid-column:4/13">
+      <label><span class="lb">本机音量</span>
+        <div style="display:flex;gap:.9rem;align-items:center">
+          <input type="range" id="vol" min="0" max="2" step="0.05" value="1">
+          <span id="volv" style="min-width:4rem;font-weight:700">1.00×</span>
+        </div>
+      </label>
+      <div class="status"><span class="sq" id="adot"></span><span id="ast">未收到音频</span></div>
+      <p class="hint" id="note"></p>
+    </div>
+  </section>
+
+  <footer>RVC · 网络音频（监听级）· 需要 https 或 localhost 才能开麦克风</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
+let TOKEN = qs.get("k") || localStorage.getItem("rvc-k") || "";
+if (qs.get("k")) { localStorage.setItem("rvc-k", TOKEN); }
+let WS_URL = qs.get("ws") || localStorage.getItem("rvc-ws") || "";
+if (!WS_URL) {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  WS_URL = proto + "://" + location.hostname + ":8900";
+}
+$("ep").textContent = WS_URL.replace(/^wss?:\/\//, "");
+
+let ws = null, me = {client: "", label: localStorage.getItem("rvc-label") || ""};
+$("label").value = me.label;
+let ac = null, micStream = null, micNode = null, playing = false, upBytes = 0;
+
+/* ── 连接 ── */
+function connect(){
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    send({cmd: "hello", label: me.label || ("设备-" + (navigator.platform || "?")) , k: TOKEN});
+    setInterval(() => { if (ws && ws.readyState === 1) send({cmd: "ping"}); }, 3000);
+  };
+  ws.onclose = () => { dot("", "已断开"); setTimeout(connect, 2000); };
+  ws.onmessage = (ev) => {
+    if (typeof ev.data !== "string") { onAudio(ev.data); return; }
+    const m = JSON.parse(ev.data);
+    if (m.type === "hello_ok") { me.client = m.client; $("me").textContent = me.client; }
+    else if (m.type === "claim_result") { $("st").textContent = (m.ok ? "✓ " : "✗ ") + m.note; render(m); }
+    else if (m.type === "release_result") { $("st").textContent = (m.ok ? "✓ " : "✗ ") + m.note; }
+    else if (m.type === "state") render(m);
+    else if (m.type === "error") { $("st").textContent = "✗ " + m.reason; }
+  };
+}
+function send(o){ if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function dot(cls, txt){ $("dot").className = "sq" + (cls ? " " + cls : ""); if (txt) $("st").textContent = txt; }
+function render(m){
+  const holder = m.input;
+  const mine = holder && holder.client === me.client;
+  dot(mine ? "on" : "", mine ? "你是当前输入源" : (holder ? "输入源是「" + holder.label + "」" : "暂无输入源"));
+  $("holder").textContent = holder ? holder.label : "—";
+  $("listeners").textContent = (m.listeners || []).length;
+}
+
+/* ── 麦克风 → WS ── */
+async function startMic(){
+  try {
+    ac = new AudioContext({ sampleRate: 48000 });
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) {
+    $("note").textContent = "开麦克风失败：" + e.name + "（局域网 http 下浏览器不允许开麦，需要 https）";
+    return;
+  }
+  const src = ac.createMediaStreamSource(micStream);
+  micNode = ac.createScriptProcessor(4096, 1, 1);
+  micNode.onaudioprocess = (e) => {
+    if (!ws || ws.readyState !== 1) return;
+    const f = e.inputBuffer.getChannelData(0);
+    const pcm = new Int16Array(f.length);
+    for (let i = 0; i < f.length; i++) {
+      let v = Math.max(-1, Math.min(1, f[i]));
+      pcm[i] = v < 0 ? v * 0x8000 : v * 0x7FFF;
+    }
+    ws.send(pcm.buffer);
+    upBytes += pcm.buffer.byteLength;
+    $("up").textContent = Math.round(upBytes / 1024) + " KB";
+  };
+  src.connect(micNode); micNode.connect(ac.destination);
+  $("mic").textContent = "关麦克风";
+  $("note").textContent = "麦克风已开。只有你持有输入权时，声音才会被送进引擎。";
+}
+function stopMic(){
+  try { micNode && micNode.disconnect(); } catch(e){}
+  try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch(e){}
+  try { ac && ac.close(); } catch(e){}
+  ac = micNode = micStream = null;
+  $("mic").textContent = "开麦克风";
+  $("note").textContent = "麦克风已关。";
+}
+
+/* ── WS → 扬声器（带抖动缓冲 + 本地音量） ── */
+let playCtx = null, gain = null, nextTime = 0;
+function ensurePlay(){
+  if (playCtx) return;
+  playCtx = new AudioContext({ sampleRate: 48000 });
+  gain = playCtx.createGain();
+  gain.gain.value = parseFloat($("vol").value);
+  gain.connect(playCtx.destination);
+}
+function onAudio(buf){
+  ensurePlay();
+  const i16 = new Int16Array(buf);
+  const f32 = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+  const ab = playCtx.createBuffer(1, f32.length, 48000);
+  ab.copyToChannel(f32, 0);
+  const src = playCtx.createBufferSource();
+  src.buffer = ab; src.connect(gain);
+  const now = playCtx.currentTime;
+  if (nextTime < now + 0.05) nextTime = now + 0.12;      // 预铺 120ms，抗抖动
+  src.start(nextTime);
+  nextTime += ab.duration;
+  $("adot").className = "sq on";
+  $("ast").textContent = "正在收听";
+  playing = true;
+}
+
+/* ── 交互 ── */
+$("label").value = me.label;
+$("rename").onclick = () => {
+  me.label = ($("label").value || "").trim() || me.label;
+  localStorage.setItem("rvc-label", me.label);
+  send({cmd: "hello", label: me.label, k: TOKEN});
+  $("st").textContent = "已改名：" + me.label;
+};
+$("claim").onclick = () => send({cmd: "claim"});
+$("takeover").onclick = () => {
+  if (confirm("抢占输入权？当前持有者会被切掉。")) send({cmd: "takeover"});
+};
+$("release").onclick = () => send({cmd: "release"});
+$("mic").onclick = () => { ac ? stopMic() : startMic(); };
+$("vol").oninput = (e) => {
+  $("volv").textContent = parseFloat(e.target.value).toFixed(2) + "×";
+  if (gain) gain.gain.value = parseFloat(e.target.value);
+};
+connect();
+</script>
+</body>
+</html>

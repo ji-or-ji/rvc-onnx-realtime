@@ -28,6 +28,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = 8899
 BUILTIN_PORT = 8898
 TOKEN = ""
+AUDIO = None          # AudioHub（--audio 启用后才有）
+AUDIO_SVC = None      # AudioService
 MODELS_FILE = os.path.join(HERE, "models.json")
 PRESETS_FILE = os.path.join(HERE, "presets.json")
 WEIGHTS_DIR = os.path.join(HERE, "assets", "weights")
@@ -121,6 +123,14 @@ def _page():
         return "<!DOCTYPE html><meta charset='utf-8'><h1>panel.html 读取失败</h1><pre>%s</pre>" % e
 
 
+def _audio_page():
+    try:
+        with open(os.path.join(HERE, "audio.html"), encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        return "<!DOCTYPE html><meta charset='utf-8'><h1>audio.html 读取失败</h1><pre>%s</pre>" % e
+
+
 class _H(BaseHTTPRequestHandler):
     # ---------- 公共 ----------
     def _authed(self):
@@ -184,6 +194,20 @@ class _H(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(models_payload(), ensure_ascii=False))
             elif self.path.startswith("/api/presets"):
                 self._send(200, json.dumps(presets_payload(), ensure_ascii=False))
+            elif self.path.startswith("/api/audio/state"):
+                if AUDIO is None:
+                    self._send(200, json.dumps({"note": "网络音频未启用（启动时加 --audio）"},
+                                               ensure_ascii=False))
+                else:
+                    import time as _t
+                    st = AUDIO.state(_t.time())
+                    st["enabled"] = True
+                    st["chunk_ms"] = getattr(AUDIO_SVC, "chunk_ms", None)
+                    st["devices"] = getattr(AUDIO_SVC, "devices", None)
+                    st["stats"] = getattr(AUDIO_SVC, "stats", None)
+                    self._send(200, json.dumps(st, ensure_ascii=False))
+            elif self.path.startswith("/audio"):
+                self._send(200, _audio_page(), "text/html; charset=utf-8")
             else:
                 self._send(200, _page(), "text/html; charset=utf-8")
         except Exception as e:
@@ -312,6 +336,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=PORT)
+    ap.add_argument("--audio", action="store_true", help="同时启用网络音频（WS PCM + 设备层）")
+    ap.add_argument("--audio-port", type=int, default=8900)
     a = ap.parse_args()
     tk = load_token()
     suffix = ("?k=" + tk) if tk else ""
@@ -325,6 +351,22 @@ def main():
         print("[管理台] 引擎 %-10s %-28s %s" %
               (i["id"], i["label"], ("可用：" + i["reason"]) if i["available"] else ("未就绪：" + i["reason"])),
               flush=True)
+
+    if a.audio:
+        global AUDIO, AUDIO_SVC
+        from audiohub import AudioHub
+        from audiosrv import AudioService
+        AUDIO = AudioHub()
+        AUDIO_SVC = AudioService(AUDIO, host=a.host, port=a.audio_port, token=tk)
+        opened = AUDIO_SVC.open_devices()
+        AUDIO_SVC.start()
+        print("[管理台] 网络音频 ws://%s:%d　打开的设备：%s" %
+              (a.host, a.audio_port, ", ".join(opened) or "（无）"), flush=True)
+        if AUDIO_SVC.devices.get("note"):
+            print("[管理台] 网络音频注意：%s" % AUDIO_SVC.devices["note"], flush=True)
+        for ip in _lan_ips()[:1]:
+            print("[管理台] 设备页 http://%s:%d/audio%s" % (ip, a.port, suffix), flush=True)
+
     srv.serve_forever()
 
 

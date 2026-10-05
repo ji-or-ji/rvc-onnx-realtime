@@ -34,13 +34,14 @@ OUT_CAP_HINTS = ["CABLE Output", "CABLE-B Output", "VoiceMeeter Output"]
 
 class AudioService:
     def __init__(self, hub: AudioHub, host="0.0.0.0", port=8900,
-                 chunk_ms=60, monitor=None, synthetic=False):
+                 chunk_ms=60, monitor=None, synthetic=False, token=""):
         self.hub = hub
         self.host = host
         self.port = port
         self.chunk_ms = int(chunk_ms)
         self.monitor = monitor
         self.synthetic = synthetic
+        self.token = token or ""
         self.sr = 48000
         self.clients = set()          # websockets
         self._by_ws = {}              # ws -> client id
@@ -102,6 +103,16 @@ class AudioService:
             ok.append("播放端 %s" % n_in)
 
         i_out, n_out = self._find(OUT_CAP_HINTS, want_input=True)
+        # 同一对线会自己咬自己：写进 CABLE Input 的东西会立刻从 CABLE Output 出来，
+        # 于是远端麦克风会被当成“引擎输出”马上广播回给所有人（回音/啸叫）。
+        if i_out is not None and self.devices["in_play"]:
+            import re
+            bare = lambda s: re.sub(r"\b(input|output|in|out)\b", "", s, flags=re.I).strip().lower()
+            if bare(self.devices["in_play"]) == bare(n_out):
+                self.devices["note"] = (
+                    "输入与输出落在同一对虚拟线上（自己咬自己）：远端麦克风会被当成引擎输出"
+                    "立刻广播回来。建议再装一对（VB-Cable A+B / VoiceMeeter）做分离。")
+                i_out = None          # 宁可不广播，也不造回音
         if i_out is None:
             self.devices["note"] = (self.devices["note"] + "；" if self.devices["note"] else "") + \
                 "没找到虚拟采集端（缺第二对线）——听众听不到引擎输出（可退化用 WASAPI loopback）"
@@ -172,6 +183,11 @@ class AudioService:
                     continue
                 cmd = m.get("cmd")
                 if cmd == "hello":
+                    if self.token and m.get("k") != self.token:
+                        await ws.send(json.dumps({"type": "error", "reason": "令牌不对"},
+                                                 ensure_ascii=False))
+                        await ws.close()
+                        return
                     label = (m.get("label") or label)[:40]
                     self.hub.seen(cid, label, now)
                     await ws.send(json.dumps({"type": "hello_ok", "client": cid}, ensure_ascii=False))
