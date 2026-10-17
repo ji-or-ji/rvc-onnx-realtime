@@ -456,8 +456,10 @@ $("engine_start").onclick = async () => {
 function cacheKey(){ return "rvc-last-" + ENGINE; }
 function saveLast(s){
   try{
-    const o = {params:{}, f0method:s.f0method};
-    NUM.forEach(k => { if (s[k] !== undefined && s[k] !== null) o.params[k] = s[k]; });
+    const P = (s.params && typeof s.params === "object") ? s.params : s;
+    const o = {params:{}, f0method:P.f0method || s.f0method};
+    NUM.forEach(k => { const v = (P[k] !== undefined) ? P[k] : s[k];
+                       if (v !== undefined && v !== null) o.params[k] = v; });
     localStorage.setItem(cacheKey(), JSON.stringify(o));
   }catch(e){}
 }
@@ -485,22 +487,38 @@ async function load(){
       $("sync").textContent = restoreLast() ? "未同步（显示上次的值）" : "";
       return;
     }
+    // 适配器统一返回嵌套结构 {params, devices, model, extra}；
+    // 老引擎直接回扁平字段。两种都认，别让面板因为形状不同就空白。
+    const P = (s.params && typeof s.params === "object") ? s.params : s;
     NUM.forEach(k => {
+      const v = (P[k] !== undefined && P[k] !== null && P[k] !== "") ? P[k] : s[k];
       const n = $(k), r = $(k + "_r");
-      if (s[k] !== null && s[k] !== undefined && s[k] !== "" && n && r) {
-        n.value = s[k]; r.value = s[k];
+      if (v !== null && v !== undefined && v !== "" && n && r) {
+        n.value = v; r.value = v;
       }
     });
-    if(s.f0method) $("f0method").value = s.f0method;
+    const f0 = P.f0method || s.f0method;
+    if(f0) $("f0method").value = f0;
     if(!$("sg_hostapi").dataset.filled){
       const dv = await (await api('/api/devices' + engineQuery())).json();
-      const apis = [...new Set(dv.devices.map(d => d.api))];
+      // 两种设备清单：builtin 给 [{name,api,io}]；fabric 给 {hostapis,inputs,outputs}
+      let list = Array.isArray(dv.devices) ? dv.devices : [];
+      if (!list.length) {
+        const api = dv.hostapi || (s.devices && s.devices.hostapi) || P.sg_hostapi || "当前";
+        list = [
+          ...(dv.inputs || []).map(n => ({name: n, api, io: "input"})),
+          ...(dv.outputs || []).map(n => ({name: n, api, io: "output"})),
+        ];
+      }
+      const apis = [...new Set([...(dv.hostapis || []), ...list.map(d => d.api).filter(Boolean)])];
       $("sg_hostapi").innerHTML = apis.map(a => `<option>${a}</option>`).join("");
-      fill("sg_input_device",  dv.devices.filter(d => d.io.includes("in")),  s.sg_input_device);
-      fill("sg_output_device", dv.devices.filter(d => d.io.includes("out")), s.sg_output_device);
+      const curApi = (s.devices && s.devices.hostapi) || P.sg_hostapi;
+      if (curApi) $("sg_hostapi").value = curApi;
+      fill("sg_input_device",  list.filter(d => String(d.io || "").includes("in")),  (s.devices && s.devices.in) || P.sg_input_device);
+      fill("sg_output_device", list.filter(d => String(d.io || "").includes("out")), (s.devices && s.devices.out) || P.sg_output_device);
       ["sg_hostapi","sg_input_device","sg_output_device"].forEach(i => $(i).dataset.filled = "1");
     }
-    const on = !!s.streaming;
+    const on = (s.running !== undefined) ? !!s.running : !!s.streaming;
     $("dot").className = "sq" + (on ? " on" : "");
     $("st").textContent = on ? "运行中" : "已停止";
     $("sync").textContent = "";
