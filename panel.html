@@ -407,7 +407,9 @@ function renderEngines(){
   sel.innerHTML = ENGINES.map(e =>
     `<option value="${e.id}">${e.label}${e.available ? "" : "（未就绪）"}</option>`).join("");
   if (!ENGINE && ENGINES.length) {
-    ENGINE = ENGINES[0].id;
+    // 没选过引擎时优先落到能用的那家，别默认停在一个没启动的引擎上
+    const firstOk = ENGINES.find(e => e.available);
+    ENGINE = (firstOk || ENGINES[0]).id;
     localStorage.setItem("rvc-engine", ENGINE);
   }
   sel.value = ENGINE;

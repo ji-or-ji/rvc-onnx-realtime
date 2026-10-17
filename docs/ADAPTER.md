@@ -55,7 +55,37 @@ block_time  crossfade_length  extra_time
 3. **不碰对方文件**（除非该引擎唯一的接口就是文件），尤其**不写对方的配置**
 4. **模型库与预设由管理台持有**，切换时只把路径下发给适配器
 
-## 六、为什么这样切
+## 六、RVC Fabric（图灵镜）实测记录
+
+`adapters/fabric.py`，`verified = 1.6.0`（2026-10 实测：start / set / stop / list_devices 全通）。
+
+**接口**：`<安装目录>/User_Data/runtime_control/` 下的 JSON 文件。
+
+```
+command.json   {seq, cmd, ts, ...}   cmd = start | stop | set | list_devices
+status.json    state / devices / delay_ms / underrun / compute_backend / last_cmd_seq
+```
+
+**worker**：`tools/realtime_worker.py`，环境变量 `TM_REALTIME_WORKER=1`，用
+`User_Data/runtimes/<变体>/pythonw.exe` 启动。它和外壳是同一个引擎，只是没有窗口。
+
+**字段分流**：
+
+| 类型 | 字段 | 处理 |
+| --- | --- | --- |
+| 可热推 | `pitch` `formant` `index_rate` `rms_mix_rate` `threhold` `f0method` | 发 `set`，同时补写配置 |
+| 需重开流 | `sg_hostapi` `sg_input_device` `sg_output_device` `sr_type` `sg_wasapi_exclusive` `pth_path` `index_path` `block_time` `crossfade_length` `extra_time` | 写 `configs/inuse/config.json` → `stop` → `start` |
+
+**两个必须知道的坑**：
+
+1. 它的设备名是 sounddevice 的**截断名**（约 32 字符，如 `CABLE Input (VB-Audio Virtual C`）。下发时必须原样回传，不能拿完整名去匹配。
+2. 它的壳和管理台**不能同时驱动**同一个 worker。建议先退出图灵镜外壳，由管理台拉起 headless worker。
+
+写 `configs/inuse/config.json` 是例外：这个引擎的参数接口本来就是文件，start 只认它。
+写进去的是「下次开流要用的值」，热参数也会补写一次，保证 `state()` 与下次启动一致。
+
+## 七、为什么这样切
+
 
 我们的资产是"管理"（局域网遥控、预设、模型库、手机端），不是"推理"。引擎换谁都不该动上层。
 反过来，任何一家引擎只要暴露**一个能下发参数与切模型的口子**，我们就能把它接进来——官方接口最好，私有协议次之，没有接口的（原版 realtime_gui）就由我们替它补一个。

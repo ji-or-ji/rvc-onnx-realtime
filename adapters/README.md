@@ -36,7 +36,7 @@ class MyEngineAdapter(Adapter):
 | --- | --- | --- | --- |
 | `builtin` | 我们插进原版 realtime_gui 的 HTTP 接口（8898） | 我们自己的接口 | 无 |
 | `vcclient` | REST（同端口 18888；Socket.IO 只跑音频） | 可用对外接口、无鉴权、**未版本化** | 中 |
-| （待定）`rvc-fabric` | `User_Data/runtime_control/` 下的 JSON 文件协议 | **私有**协议，且是「顶替它的壳」 | 高：必须钉死 1.6.0 |
+| `rvc-fabric` | `User_Data/runtime_control/` 下的 JSON 文件协议 | **私有**协议，且是「顶替它的壳」 | 高：已钉死 1.6.0，升级要重测 |
 
 ## 加一家之前的检查清单
 
@@ -50,3 +50,4 @@ class MyEngineAdapter(Adapter):
 
 - `adapters/builtin.py` —— 契约字段直通（因为那套字段名就是从它来的）
 - `adapters/vcclient.py` —— 需要翻译：`pitch→tran`、`index_rate→indexRatio`、`extra_time→extraConvertSize`、`f0method→f0Detector`、设备走 `serverInputDeviceId/serverOutputDeviceId`（服务端出声还要 `enableServerAudio=1`）
+- `adapters/fabric.py` —— 文件协议：写 `command.json` 发命令、读 `status.json` 取状态；热参数走 `set`，设备/模型等要写 `configs/inuse/config.json` 再重开流。设备名是 32 字符截断名，必须原样回传
